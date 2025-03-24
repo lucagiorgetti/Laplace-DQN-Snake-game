@@ -1,15 +1,19 @@
 #Setting up the environment.
-#The playground is a matrix having -1 on the position of the walls, 1 on the position of the snake (-7, 7 respectively for the queue and the head), 2 for the food and 0 for empty spaces.
+#The playground is a matrix having -1 on the position of the walls, 1 on the position of the snake 2 for the food and 0 for empty spaces.
 
 using Images, ColorTypes, Plots
 using Random
 
+#game object 
+
 mutable struct SnakeGame
     state::Matrix{Int}
+    snake::Vector{CartesianIndex{2}} #head is the first tuple, queue the last
+    direction::CartesianIndex{2}     #It will have to be initialized using DQN
     score::Int
     rng::AbstractRNG
     state_size::Int
-    prev_food::Tuple{Int, Int}
+    prev_food::CartesianIndex{2}
 
     # Custom constructor
     function SnakeGame(state_size = 10, rng = Xoshiro(42))
@@ -21,15 +25,22 @@ mutable struct SnakeGame
         state[:, 1] .= -1
         state[:, end] .= -1
 
-        # Initialize the snake (bottom-left), -7 is the queue, 7 is the head
-        state[end - 2, 2] = 7
-        state[end - 1, 2] = -7
+        # Initialize the snake (bottom-left)
+        
+        snake = [CartesianIndex(state_size - 2, 2),CartesianIndex(state_size - 1, 2)]
+        
+        for ci in snake 
+        	state[ci] = 1
+        end 
 
         # Place the first food
-        prev_food = (5,5)
-        state[5,5] = 2  # Place food
-
-        new(state, 0, rng, state_size, prev_food)
+        prev_food = CartesianIndex(5,5)
+        state[prev_food] = 2              # Place food
+        
+        #initialize direction (for now)
+        direction = CartesianIndex(-1,0)  #move up
+        
+        new(state, snake, direction, 0, rng, state_size, prev_food)
     end
 end
 
@@ -43,7 +54,7 @@ function plot_state(game::SnakeGame)
     for i in 1:h, j in 1:w
         if game.state[i, j] == -1               # Walls
             img[i, j] = ARGB32(0, 0, 0, 1)  # Black
-        elseif game.state[i, j] in [-7, 1, 7]        # Snake
+        elseif game.state[i, j] == 1            # Snake
             img[i, j] = ARGB32(0, 1, 0, 1)  # Green
         elseif game.state[i, j] == 2            # Food
             img[i, j] = ARGB32(1, 0, 0, 1)  # Red
@@ -57,7 +68,7 @@ end
 function sample_food!(game::SnakeGame)
 
     # Find empty positions
-    empty_positions = [(i, j) for i in 2:(game.state_size-1), j in 2:(game.state_size-1) if game.state[i, j] == 0]
+    empty_positions = findall(==(0),game.state)
     
     if isempty(empty_positions)
         return  # No space left
@@ -65,11 +76,9 @@ function sample_food!(game::SnakeGame)
 
     # Pick a random empty spot
     food_pos = rand(game.rng, empty_positions)
-    
-    println(food_pos)
-    
+
     # Update game state
-    game.state[food_pos...] = 2
+    game.state[food_pos] = 2
     game.prev_food = food_pos
 end 
 
@@ -77,6 +86,7 @@ end
 function move!(game::SnakeGame, direction::String)
     
     if direction == "left"
+    	
     
     elseif direction == "right"
     
