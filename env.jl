@@ -13,7 +13,7 @@ mutable struct SnakeGame
     score::Int
     rng::AbstractRNG
     state_size::Int
-    prev_food::CartesianIndex{2}
+    lost::Bool
 
     # Custom constructor
     function SnakeGame(state_size = 10, rng = Xoshiro(42))
@@ -32,15 +32,13 @@ mutable struct SnakeGame
         for ci in snake 
         	state[ci] = 1
         end 
-
-        # Place the first food
-        prev_food = CartesianIndex(5,5)
-        state[prev_food] = 2              # Place food
         
         #initialize direction (for now)
         direction = CartesianIndex(-1,0)  #move up
         
-        new(state, snake, direction, 0, rng, state_size, prev_food)
+        lost = false
+        
+        new(state, snake, direction, 0, rng, state_size, lost)
     end
 end
 
@@ -79,26 +77,55 @@ function sample_food!(game::SnakeGame)
 
     # Update game state
     game.state[food_pos] = 2
-    game.prev_food = food_pos
 end 
 
-#function to move the snake
-function move!(game::SnakeGame, direction::String)
-    
-    if direction == "left"
-    	
-    
-    elseif direction == "right"
-    
-    elseif direction == "up"
-    
-    elseif direction == "down"
-    
-    end
-	
+#update state
+function update_state!(game::SnakeGame)
+    game.state[game.state .== 1] .= 0 #remove previous snake positions
 
+    # Redraw snake, this also handle removing food pixel when needed
+    for ci in game.snake
+        game.state[ci] = 1
+    end
 end
 
+#function to check collision, must be modified
+function check_collision(game::SnakeGame)
+    head = game.snake[1]
+    return game.state[head] == -1 ||  count(==(head), game.snake) > 1     #true for a collision false otherwise, first condition check collision with the wall, second one collisions with the snake itself.
+end
+
+#remove tail
+function remove_tail!(game::SnakeGame)
+    popat!(game.snake, end)
+end
+
+#function to grow maybe
+function grow_maybe!(game::SnakeGame)
+    new_head = game.snake[1] + game.direction
+    pushfirst!(game.snake, new_head)
+
+    # If food is eaten, place new food and increase score
+    if game.state[new_head] == 2  
+        sample_food!(game)
+        game.score += 1
+    else
+        remove_tail!(game)  # Normal move (no food)
+    end
+end
+
+#move wrapper, the snakes grow, if he hits the wall or himself he loses, if he does not run into food, I remove the tail 
+
+function move_wrapper(game::SnakeGame)
+    grow_maybe!(game)  # Add new head
+    
+    if check_collision(game) 
+        game.lost = true 
+        return
+    end
+
+update_state!(game)
+end
 
 # ----------------------- Test -------------------------------
 game = SnakeGame()
