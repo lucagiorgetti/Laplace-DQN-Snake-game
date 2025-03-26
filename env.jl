@@ -58,7 +58,7 @@ function plot_state(game::SnakeGame)
             img[i, j] = ARGB32(1, 0, 0, 1)  # Red
         end
     end
-    return plot(img)
+    return plot(img, framestyle = :none)
 end
 
 # Function to place new food, not really random: the seed is fixed at the beginning of a new episode.
@@ -97,7 +97,7 @@ end
 
 #remove tail
 function remove_tail!(game::SnakeGame)
-    popat!(game.snake, end)
+    pop!(game.snake)
 end
 
 #function to grow maybe
@@ -116,7 +116,7 @@ end
 
 #move wrapper, the snakes grow, if he hits the wall or himself he loses, if he does not run into food, I remove the tail 
 
-function move_wrapper(game::SnakeGame)
+function move_wrapper!(game::SnakeGame)
     grow_maybe!(game)  # Add new head
     
     if check_collision(game) 
@@ -127,9 +127,11 @@ function move_wrapper(game::SnakeGame)
 update_state!(game)
 end
 
+"""
 # ----------------------- Test -------------------------------
 game = SnakeGame()
 sample_food!(game)  # Place new food
 plot_state(game)    # Visualize game
+"""
                  
 
