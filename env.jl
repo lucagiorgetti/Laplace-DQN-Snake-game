@@ -10,6 +10,7 @@ mutable struct SnakeGame
     state::Matrix{Int}
     snake::Vector{CartesianIndex{2}} #head is the first tuple, queue the last
     direction::CartesianIndex{2}     #It will have to be initialized using DQN
+    prev_move::CartesianIndex{2}
     score::Int
     rng::AbstractRNG
     state_size::Int
@@ -35,17 +36,18 @@ mutable struct SnakeGame
         
         #initialize direction (for now)
         direction = CartesianIndex(-1,0)  #move up
+        prev_move = CartesianIndex(0,0) #stay still
         
         lost = false
         
-        new(state, snake, direction, 0, rng, state_size, lost)
+        new(state, snake, direction, prev_move, 0, rng, state_size, lost)
     end
 end
 
 #to reset the game I will simply call a new instance of the game.
 
 # Function to plot the game state
-function plot_state(game::SnakeGame)
+function plot_or_update!(game::SnakeGame, plt::Union{Plots.Plot, Missing, Nothing} = missing)
     h, w = size(game.state)
     img = fill(ARGB32(1, 1, 1, 1), h, w)    # White background
 
@@ -58,7 +60,13 @@ function plot_state(game::SnakeGame)
             img[i, j] = ARGB32(1, 0, 0, 1)  # Red
         end
     end
-    return plot(img, framestyle = :none)
+    
+    if ismissing(plt) || isnothing(plt)
+        return plot(img, framestyle = :none)
+    else   
+        plot!(plt, img)
+        return plt
+    end 
 end
 
 # Function to place new food, not really random: the seed is fixed at the beginning of a new episode.
@@ -81,18 +89,20 @@ end
 
 #update state
 function update_state!(game::SnakeGame)
+
     game.state[game.state .== 1] .= 0 #remove previous snake positions
 
     # Redraw snake, this also handle removing food pixel when needed
     for ci in game.snake
         game.state[ci] = 1
     end
+    
 end
 
 #function to check collision, must be modified
-function check_collision(game::SnakeGame)
+function check_collision(game::SnakeGame) :: Bool
     head = game.snake[1]
-    return game.state[head] == -1 ||  count(==(head), game.snake) > 1     #true for a collision false otherwise, first condition check collision with the wall, second one collisions with the snake itself.
+    return game.state[head] == -1 ||  count(==(head), game.snake) > 1 ||  game.prev_move + game.direction == CartesianIndex(0,0)   #true for a collision false otherwise, first condition check collision with the wall, second and third ones collisions with the snake itself.
 end
 
 #remove tail
@@ -121,17 +131,9 @@ function move_wrapper!(game::SnakeGame)
     
     if check_collision(game) 
         game.lost = true 
-        return
     end
 
-update_state!(game)
+    update_state!(game)
+    game.prev_move = game.direction
 end
-
-"""
-# ----------------------- Test -------------------------------
-game = SnakeGame()
-sample_food!(game)  # Place new food
-plot_state(game)    # Visualize game
-"""
                  
-
