@@ -1,197 +1,50 @@
 include("env.jl")
 using Printf
 
-#the am overwriting the default first action, which is move up.
- 
-actions = ['.', CartesianIndex(-1,0), CartesianIndex(0,1), CartesianIndex(-1,0), CartesianIndex(0,-1), CartesianIndex(0,-1)]
-game = SnakeGame()
-
-plt = plot_or_update!(game)  # Plot the initial frame before the loop
-sample_food!(game)
-
-anim = @animate for (i, act) in enumerate(actions)
-    if i > 1
-        game.direction = act
-        move_wrapper!(game)
-    end
-    
-    plot_or_update!(game, plt)  # Update the existing plot
-
-    if game.lost
-        @printf "Collision!! Final score %d, iteration %d. \n" game.score i
-        break
-    end
+function animate_snake(actions::Vector{Any}, gif_name::String)
+         plt = nothing
+         game = SnakeGame()
+         plt = plot_or_update!(game)
+         sample_food!(game)
+         
+         break_next = false
+         
+         anim = @animate for (i, act) in enumerate(actions)
+             if i > 1 && break_next == false
+                 game.direction = act
+                 move_wrapper!(game)
+             end
+             
+             if break_next == true
+                break
+             end 
+             
+             plot_or_update!(game, plt)
+             
+             if game.lost
+                 @printf "Collision!! Final score %d, iteration %d, length snake %d. \n" game.score i length(game.snake)
+                 break_next = true
+             end
+         end
+         
+         gif(anim, "./gifs/"*gif_name*".gif", fps=1)
+         return nothing              
 end 
 
-gif(anim, "./gifs/collision.gif", fps=1)
+#I am overwriting the default first action, which is move up.
+name_seq = ["collision", "eating_food", "eating_itself", "almost_eating_itself", "eating_queue"]
 
-#eating food
-actions = ['.', CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(0,-1), CartesianIndex(0,-1), CartesianIndex(0,-1), CartesianIndex(-1,0), CartesianIndex(-1,0)]
- 
-plt = nothing
-game = SnakeGame()
-plt = plot_or_update!(game)  # Plot the initial frame before the loop
-sample_food!(game)
+actions_seq = [['.', CartesianIndex(-1,0), CartesianIndex(0,1), CartesianIndex(-1,0), CartesianIndex(0,-1), CartesianIndex(0,-1)],
 
-anim = @animate for (i, act) in enumerate(actions)
-    if i > 1
-        game.direction = act
-        move_wrapper!(game)
-    end
-    
-    plot_or_update!(game, plt)  # Update the existing plot
+['.', CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(0,-1), CartesianIndex(0,-1), CartesianIndex(0,-1), CartesianIndex(-1,0), CartesianIndex(-1,0)],
 
-    if game.lost
-        @printf "Collision!! Final score %d, iteration %d. \n" game.score i
-        break
-    end
-end 
+['.', CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,-1), CartesianIndex(-1,0)],
 
-gif(anim, "./gifs/eating_food.gif", fps=1)
+['.', CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(0,-1), CartesianIndex(0,-1), CartesianIndex(0,-1), CartesianIndex(1,0), CartesianIndex(1,0), CartesianIndex(1,0), CartesianIndex(1,0), CartesianIndex(1,0),CartesianIndex(1,0), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(-1,0), CartesianIndex(0,-1), CartesianIndex(0,-1), CartesianIndex(0,-1)],
 
-#snake eating itself
-actions = ['.', CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,-1), CartesianIndex(-1,0)]
- 
-plt = nothing
-game = SnakeGame()
-plt = plot_or_update!(game)  # Plot the initial frame before the loop
-sample_food!(game)
+['.', CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(0,-1), CartesianIndex(0,-1), CartesianIndex(0,-1), CartesianIndex(1,0), CartesianIndex(1,0), CartesianIndex(1,0), CartesianIndex(1,0), CartesianIndex(1,0),CartesianIndex(1,0), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(0,-1), CartesianIndex(1,0), CartesianIndex(1,0),
+CartesianIndex(0,1), CartesianIndex(1,0)]]
 
-anim = @animate for (i, act) in enumerate(actions)
-    if i > 1
-        game.direction = act
-        move_wrapper!(game)
-    end
-    
-    plot_or_update!(game, plt)  # Update the existing plot
-    
-    if game.lost
-        @printf "Collision!! Final score %d, %d. \n" game.score i
-        break
-    end
-end 
-
-gif(anim, "./gifs/eating_itself.gif", fps=1)
-
-#eating two foods
-actions = ['.', CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(0,-1), CartesianIndex(0,-1), CartesianIndex(0,-1), CartesianIndex(1,0), CartesianIndex(1,0), CartesianIndex(0,-1)]
- 
-plt = nothing
-game = SnakeGame()
-plt = plot_or_update!(game)  # Plot the initial frame before the loop
-sample_food!(game)
-
-anim = @animate for (i, act) in enumerate(actions)
-    if i > 1
-        game.direction = act
-        move_wrapper!(game)
-    end
-    
-    plot_or_update!(game, plt)  # Update the existing plot
-
-    if game.lost
-        @printf "Collision!! Final score %d, iteration %d. \n" game.score i
-        break
-    end
-end 
-
-gif(anim, "./gifs/eating_two_foods.gif", fps=1)
-
-#eating three foods
-actions = ['.', CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(0,-1), CartesianIndex(0,-1), CartesianIndex(0,-1), CartesianIndex(1,0), CartesianIndex(1,0), CartesianIndex(1,0), CartesianIndex(1,0), CartesianIndex(1,0),CartesianIndex(1,0), CartesianIndex(0,1)]
- 
-plt = nothing
-game = SnakeGame()
-plt = plot_or_update!(game)  # Plot the initial frame before the loop
-sample_food!(game)
-
-anim = @animate for (i, act) in enumerate(actions)
-    if i > 1
-        game.direction = act
-        move_wrapper!(game)
-    end
-    
-    plot_or_update!(game, plt)  # Update the existing plot
-
-    if game.lost
-        @printf "Collision!! Final score %d, iteration %d. \n" game.score i
-        break
-    end
-end 
-
-gif(anim, "./gifs/eating_three_foods.gif", fps=1)
-
-#eating four foods
-actions = ['.', CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(0,-1), CartesianIndex(0,-1), CartesianIndex(0,-1), CartesianIndex(1,0), CartesianIndex(1,0), CartesianIndex(1,0), CartesianIndex(1,0), CartesianIndex(1,0),CartesianIndex(1,0), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(-1,0), CartesianIndex(0,1)]
- 
-plt = nothing
-game = SnakeGame()
-plt = plot_or_update!(game)  # Plot the initial frame before the loop
-sample_food!(game)
-
-anim = @animate for (i, act) in enumerate(actions)
-    if i > 1
-        game.direction = act
-        move_wrapper!(game)
-    end
-    
-    plot_or_update!(game, plt)  # Update the existing plot
-
-    if game.lost
-        @printf "Collision!! Final score %d, iteration %d. \n" game.score i
-        break
-    end
-end 
-
-gif(anim, "./gifs/eating_four_foods.gif", fps=1)
-
-#almost eating itself
-actions = ['.', CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(0,-1), CartesianIndex(0,-1), CartesianIndex(0,-1), CartesianIndex(1,0), CartesianIndex(1,0), CartesianIndex(1,0), CartesianIndex(1,0), CartesianIndex(1,0),CartesianIndex(1,0), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(-1,0), CartesianIndex(0,-1), CartesianIndex(0,-1), CartesianIndex(0,-1)]
-
-plt = nothing
-game = SnakeGame()
-plt = plot_or_update!(game)  # Plot the initial frame before the loop
-sample_food!(game)
-
-anim = @animate for (i, act) in enumerate(actions)
-    if i > 1
-        game.direction = act
-        move_wrapper!(game)
-    end
-    
-    plot_or_update!(game, plt)  # Update the existing plot
-
-    if game.lost
-        @printf "Collision!! Final score %d, iteration %d, length snake %d. \n" game.score i length(game.snake)
-        for cc in game.snake
-                println(cc)
-        end
-        break
-    end
-end 
-
-gif(anim, "./gifs/almost_eating_itself.gif", fps=1)
-
-#eating itself 2
-actions = ['.', CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(-1,0), CartesianIndex(0,-1), CartesianIndex(0,-1), CartesianIndex(0,-1), CartesianIndex(1,0), CartesianIndex(1,0), CartesianIndex(1,0), CartesianIndex(1,0), CartesianIndex(1,0),CartesianIndex(1,0), CartesianIndex(0,1), CartesianIndex(0,1), CartesianIndex(-1,0), CartesianIndex(0,-1), CartesianIndex(1,0), CartesianIndex(0,1)]
-
-plt = nothing
-game = SnakeGame()
-plt = plot_or_update!(game)  # Plot the initial frame before the loop
-sample_food!(game)
-
-anim = @animate for (i, act) in enumerate(actions)
-    if i > 1
-        game.direction = act
-        move_wrapper!(game)
-    end
-    
-    plot_or_update!(game, plt)  # Update the existing plot
-
-    if game.lost
-        @printf "Collision!! Final score %d, iteration %d, length snake %d. \n" game.score i length(game.snake)
-    break
-    end
-end 
-
-gif(anim, "./gifs/eating_itself2.gif", fps=1)
+for (name, actions) in zip(name_seq, actions_seq)
+     animate_snake(actions, name)
+end
