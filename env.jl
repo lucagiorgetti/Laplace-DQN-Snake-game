@@ -12,12 +12,14 @@ mutable struct SnakeGame
     direction::CartesianIndex{2}     #It will have to be initialized using DQN
     prev_move::CartesianIndex{2}
     score::Int
+    reward::Float64
     rng::AbstractRNG
     state_size::Int
     lost::Bool
+    discount::Float64  
 
     # Custom constructor
-    function SnakeGame(state_size = 10, rng = Xoshiro(42))
+    function SnakeGame(state_size = 10, discount = 0.99, rng = Xoshiro(42))
         state = zeros(Int, (state_size, state_size))  # Create empty grid
 
         # Draw walls (-1)
@@ -36,11 +38,11 @@ mutable struct SnakeGame
         
         #initialize direction (for now)
         direction = CartesianIndex(-1,0)  #move up
-        prev_move = CartesianIndex(0,0) #stay still
+        prev_move = CartesianIndex(0,0)   #stay still
         
         lost = false
         
-        new(state, snake, direction, prev_move, 0, rng, state_size, lost)
+        new(state, snake, direction, prev_move, 0, 0, rng, state_size, lost, discount)
     end
 end
 
@@ -115,10 +117,11 @@ function grow_maybe!(game::SnakeGame)
     new_head = game.snake[1] + game.direction
     pushfirst!(game.snake, new_head)
 
-    # If food is eaten, place new food and increase score
+    # If food is eaten, place new food and increase score and reward
     if game.state[new_head] == 2  
         sample_food!(game)
         game.score += 1
+        game.reward = 1 + game.discount * game.reward   #immediate reward = 1 for eating food
     else
         remove_tail!(game)  # Normal move (no food)
     end
@@ -131,6 +134,7 @@ function move_wrapper!(game::SnakeGame)
     
     if check_collision(game) 
         game.lost = true 
+        game.reward = -1 + game.discount * game.reward   #immediate reward = -1 if he looses
     end
 
     update_state!(game)

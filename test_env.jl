@@ -3,7 +3,7 @@ using Printf
 
 function animate_snake(actions::Vector{Any}, gif_name::String)
          plt = nothing
-         game = SnakeGame()
+         game = SnakeGame(10,1)
          plt = plot_or_update!(game)
          sample_food!(game)
          
@@ -22,7 +22,7 @@ function animate_snake(actions::Vector{Any}, gif_name::String)
              plot_or_update!(game, plt)
              
              if game.lost
-                 @printf "Collision!! Final score %d, iteration %d, length snake %d. \n" game.score i length(game.snake)
+                 @printf "Collision!! Final score %d, reward %.3f \n" game.score game.reward
                  break_next = true
              end
          end
