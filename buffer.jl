@@ -40,7 +40,6 @@ function sample(rpb::ReplayBuffer, batch_size::Int)::Vector{Experience}
           end 
 end
 
-
 #-----------------------------------HELPER FUNCTIONS----------------------------------------------------------------------------------
 function isfull(rpb::ReplayBuffer)
           return rpb.position == rpb.capacity
@@ -49,3 +48,12 @@ end
 function isready(rpb::ReplayBuffer, batch_size::Int)
           return length(rpb) >= batch_size
 end
+
+function fill_buffer(rpb::ReplayBuffer, game::SnakeGame)
+         while !isfull(rpb)
+               # epsilon-greedy policy
+               action = epsilon_greedy(game, model, epsilon = 1)
+               exp = get_step(game, action)
+               store!(rpb, exp)    
+         end 
+end 

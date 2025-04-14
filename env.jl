@@ -140,4 +140,17 @@ function move_wrapper!(game::SnakeGame)
     update_state!(game)
     game.prev_move = game.direction
 end
-                 
+
+function get_step(game::SnakeGame, action::CartesianIndex{2})::Experience
+         
+          state = game.state
+          game.direction = action
+          move_wrapper!(game)
+          reward = game.reward
+          next_state = game.state
+          if game.lost
+             return (state, action, reward, next_state, true)
+          else 
+             return (state, action, reward, next_state, false)
+          end
+end                 

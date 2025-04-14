@@ -28,18 +28,22 @@ mutable struct DQNModel
 end
 
 #TODO:implement methods
-function epsilon_greedy(game::SnakeGame, model::DQNModel, epsilon::Float64)::CartesianIndex{2}=0.01)
+function epsilon_greedy(game::SnakeGame, model::DQNModel, epsilon::Float64)::CartesianIndex{2})
 
-          actions = [CartesianIndex(1,0), CartesianIndex(-1,0), CartesianIndex(0,1), CartesianIndex(0,-1)]
+          actions = [CartesianIndex(-1,0), CartesianIndex(1,0), CartesianIndex(0,-1), CartesianIndex(0,1)]
           
           state = game.state
           
           if only(rand(1)) < epsilon
               act = rand(actions)
           else
-             exp_rewards = model.q_network(state)
+             exp_rewards = model.q_net(state)
              max_idx = argmax(exp_rewards)
              act = actions[max_idx]
           end
           return act
+end
+
+function update_target_net(model::DQNModel)
+          Flux.loadparams(model.t_net, params(model.q_net))
 end
