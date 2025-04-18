@@ -9,10 +9,13 @@ mutable struct ReplayBuffer
         capacity::Int
         position::Int
         buffer::Vector{Experience}
+        batch_size::Int
         
         function ReplayBuffer(capacity = 10000)
                   buffer = Vector{Experience}(undef, 0)
-                  new(capacity, 1, buffer)
+                  batch_size = 64
+                  if batch_size > capacity throw("batch_size cannot be greater than the capacity of the buffer.") end
+                  new(capacity, 1, buffer, batch_size)
         end
 end
 
@@ -32,7 +35,8 @@ function store!(rpb::ReplayBuffer, exp::Experience)
 end
 
 #I think sampling without replacement is faster because I do not want to repeat the initial state-actions for too many times.
-function sample(rpb::ReplayBuffer, batch_size::Int)::Vector{Experience}
+function sample(rpb::ReplayBuffer)::Vector{Experience}
+          batch_size = rpb.batch_size
           if length(rpb) < batch_size
               return sample(rpb.buffer, length(rpb), replace = false)
           else
@@ -45,15 +49,22 @@ function isfull(rpb::ReplayBuffer)
           return rpb.position == rpb.capacity
 end
 
-function isready(rpb::ReplayBuffer, batch_size::Int)
+function isready(rpb::ReplayBuffer)
+          batch_size = rpb.batch_size
           return length(rpb) >= batch_size
 end
 
-function fill_buffer(rpb::ReplayBuffer, game::SnakeGame)
+function fill_buffer!(rpb::ReplayBuffer, model::DQNModel)
+         game = SnakeGame()
          while !isfull(rpb)
                # epsilon-greedy policy
-               action = epsilon_greedy(game, model, epsilon = 1)
+               action = epsilon_greedy(game, model, epsilon = 1.0)
                exp = get_step(game, action)
-               store!(rpb, exp)    
+               store!(rpb, exp)
+               if game.lost game = SnakeGame() end 
          end 
+end 
+
+function empty_buffer!(rpb::ReplayBuffer)
+           rpb.buffer = Vector{Experience}(undef, 0)
 end 

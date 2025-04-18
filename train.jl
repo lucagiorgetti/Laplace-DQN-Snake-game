@@ -37,17 +37,40 @@ function stack_exp(batch::Vector{Experience})
 
     return (states_array, actions_array, rewards_array, next_states_array, done_array)
 end
-#-----------------------------------------------------------------------------------------------------------
-#batch comes out from sample in buffer.jl
-function dqn_loss(model::DQNModel, stacked_batch::Tuple{Array{Float64}, Array{Float64}, Array{Int}, Array{Float64}, Array{Bool}}, game::SnakeGame)::Float64
-    states, actions, rewards, next_states, dones = stacked_batch 
-    total_loss = 0.0
-    q_pred = model.q_net(states)     #(4, batch_size)
-end
 
+function train!(model::DQNModel, rpb::ReplayBuffer, n_batches::Int, target_update_rate::Int, epsilon::Float64)
+          game = SnakeGame()
+          opt_state = Flux.setup(model.opt, model.q_net)
+          nb = 0
+          
+          while nb < n_batches
+                 action = epsilon_greedy(game, model, epsilon)
+                 experience = get_step(game, action)
+                 store!(rpb, experience)
+                 
+                 batch = sample(rpb)
+                 states, actions, rewards, next_states, dones = stack_exp(batch)
+                 q_pred = model.q_net(states)                                               # (n_actions, batch_size)
+    		 q_pred_selected = [q_pred[a, i] for (i, a) in enumerate(actions)]
+    		 q_pred_selected = reshape(q_pred_selected, :)                              # (batch_size,)
+    		 q_next = model.t_net(next_states)
+    		 max_next_q = dropdims(maximum(q_next, dims = 1), dims = 1)                 # (batch_size,)
+		 q_target = @. rewards + game.discount * max_next_q * (1 - dones)
+		 
+		 grads = Flux.gradient(model.q_net) do m
+		     Flux.huber_loss(q_pred_selected, q_target)
+		 end
+		 Flux.update!(opt_state, model.q_net, grads[1])
+		 
+		 if nb % target_update_rate == 0 update_target_net!(model) end
+		 if game.lost game = SnakeGame()
+		 nb += 1
+          end   
+end 
 
+"""
 #start by acquiring experience until the buffer is full
 game = SnakeGame()
 rpb = ReplayBuffer()
 model = DQNModel(game)
-
+"""

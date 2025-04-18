@@ -44,6 +44,6 @@ function epsilon_greedy(game::SnakeGame, model::DQNModel, epsilon::Float64)::Car
           return act
 end
 
-function update_target_net(model::DQNModel)
+function update_target_net!(model::DQNModel)
           Flux.loadparams(model.t_net, params(model.q_net))
 end
