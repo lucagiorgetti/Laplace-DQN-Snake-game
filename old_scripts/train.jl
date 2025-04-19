@@ -1,7 +1,4 @@
 #train loop
-include("env.jl")
-include("buffer.jl")
-include("model.jl")
 
 const ACTIONS = Dict(
     CartesianIndex(-1, 0) => 1,  # Up
@@ -19,10 +16,10 @@ function stack_exp(batch::Vector{Experience})
     h, w = size(batch[1][1])  # board dimensions
 
     # Preallocate arrays
-    states_array      = Array{Float64}(undef, h, w, 1, batch_size)
-    next_states_array = Array{Float64}(undef, h, w, 1, batch_size)
+    states_array      = Array{Float32}(undef, h, w, 1, batch_size)
+    next_states_array = Array{Float32}(undef, h, w, 1, batch_size)
     actions_array     = Array{Int}(undef, batch_size)
-    rewards_array     = Array{Float64}(undef, batch_size)
+    rewards_array     = Array{Float32}(undef, batch_size)
     done_array        = Array{Bool}(undef, batch_size)
 
     for i in 1:batch_size
@@ -38,11 +35,12 @@ function stack_exp(batch::Vector{Experience})
     return (states_array, actions_array, rewards_array, next_states_array, done_array)
 end
 
-function train!(model::DQNModel, rpb::ReplayBuffer, n_batches::Int, target_update_rate::Int, epsilon::Float64)
-          game = SnakeGame()
+function train!(model::DQNModel, rpb::ReplayBuffer, n_batches::Int, target_update_rate::Int, epsilon::Float32)
+          fill_buffer!(rpb, model)
           opt_state = Flux.setup(model.opt, model.q_net)
           nb = 0
           
+          game = SnakeGame()
           while nb < n_batches
                  action = epsilon_greedy(game, model, epsilon)
                  experience = get_step(game, action)
@@ -63,14 +61,9 @@ function train!(model::DQNModel, rpb::ReplayBuffer, n_batches::Int, target_updat
 		 Flux.update!(opt_state, model.q_net, grads[1])
 		 
 		 if nb % target_update_rate == 0 update_target_net!(model) end
-		 if game.lost game = SnakeGame()
+		 if game.lost game = SnakeGame() end
+		 if nb % 5 == 0 @printf "%d / %d -- loss %.3f \n" nb n_batches Flux.huber_loss(q_pred_selected, q_target) end
 		 nb += 1
           end   
 end 
 
-"""
-#start by acquiring experience until the buffer is full
-game = SnakeGame()
-rpb = ReplayBuffer()
-model = DQNModel(game)
-"""

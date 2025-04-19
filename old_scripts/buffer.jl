@@ -2,7 +2,7 @@
 using StatsBase
 
 #type alias
-const Experience = Tuple{Matrix{Int64}, CartesianIndex{2}, Float64, Matrix{Int64}, Bool}
+const Experience = Tuple{Matrix{Int64}, CartesianIndex{2}, Float32, Matrix{Int64}, Bool}
 
 
 mutable struct ReplayBuffer
@@ -38,9 +38,9 @@ end
 function sample(rpb::ReplayBuffer)::Vector{Experience}
           batch_size = rpb.batch_size
           if length(rpb) < batch_size
-              return sample(rpb.buffer, length(rpb), replace = false)
+              return StatsBase.sample(rpb.buffer, length(rpb); replace = false)     
           else
-              return sample(rpb.buffer, batch_size, replace = false)
+              return StatsBase.sample(rpb.buffer, batch_size; replace = false)
           end 
 end
 
@@ -58,7 +58,7 @@ function fill_buffer!(rpb::ReplayBuffer, model::DQNModel)
          game = SnakeGame()
          while !isfull(rpb)
                # epsilon-greedy policy
-               action = epsilon_greedy(game, model, epsilon = 1.0)
+               action = epsilon_greedy(game, model, 1.0f0)
                exp = get_step(game, action)
                store!(rpb, exp)
                if game.lost game = SnakeGame() end 

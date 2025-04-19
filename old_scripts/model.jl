@@ -1,7 +1,6 @@
 using Flux
 using Flux.Optimise: RMSProp
-include("env.jl")
-include("buffer.jl")
+using Printf
 
 mutable struct DQNModel
     q_net::Chain
@@ -15,8 +14,8 @@ mutable struct DQNModel
             Conv((3, 3), 1 => 16, relu; pad=(1,1)), 
             Conv((3, 3), 16 => 32, relu; pad=(1,1)),
             Conv((6, 6), 32 => 64, relu),
-            flatten,
-            Dense(((board_size - 4) * (board_size - 4) * 64), 64, relu),
+            Flux.flatten,
+            Dense(((board_size - 5) * (board_size - 5) * 64), 64, relu),
             Dense(64, 4)   #output n_actions == 4
         )
 
@@ -27,14 +26,14 @@ mutable struct DQNModel
     end
 end
 
-#TODO:implement methods
-function epsilon_greedy(game::SnakeGame, model::DQNModel, epsilon::Float64)::CartesianIndex{2})
+#-------------------------------------------METHODS-----------------------------------------------------------------------------------
+function epsilon_greedy(game::SnakeGame, model::DQNModel, epsilon::Float32)::CartesianIndex{2}
 
           actions = [CartesianIndex(-1,0), CartesianIndex(1,0), CartesianIndex(0,-1), CartesianIndex(0,1)]
           
-          state = game.state
+          state = reshape(game.state, game.state_size, game.state_size, 1, 1)
           
-          if only(rand(1)) < epsilon
+          if Float32(only(rand(1))) < epsilon
               act = rand(actions)
           else
              exp_rewards = model.q_net(state)
@@ -45,5 +44,6 @@ function epsilon_greedy(game::SnakeGame, model::DQNModel, epsilon::Float64)::Car
 end
 
 function update_target_net!(model::DQNModel)
-          Flux.loadparams(model.t_net, params(model.q_net))
+          flat_params, reconstructor = Flux.destructure(model.q_net)
+          model.t_net = reconstructor(flat_params)
 end

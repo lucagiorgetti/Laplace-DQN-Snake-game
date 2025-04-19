@@ -12,11 +12,11 @@ mutable struct SnakeGame
     direction::CartesianIndex{2}     #It will have to be initialized using DQN
     prev_move::CartesianIndex{2}
     score::Int
-    reward::Float64
+    reward::Float32
     rng::AbstractRNG
     state_size::Int
     lost::Bool
-    discount::Float64  
+    discount::Float32  
 
     # Custom constructor
     function SnakeGame(state_size = 10, discount = 0.99, rng = Xoshiro(42))
