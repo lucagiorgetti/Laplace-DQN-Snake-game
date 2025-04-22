@@ -106,7 +106,9 @@ function get_step(game::SnakeGame, action::CartesianIndex{2})::Experience
              return (state, action, reward, next_state, false)
           end
 end
+
 #####################################################buffer methods#################################################################
+
 #definition length of a buffer
 Base.length(rpb::ReplayBuffer) = length(rpb.buffer)
 
@@ -157,6 +159,7 @@ function empty_buffer!(rpb::ReplayBuffer)
 end 
 
 ##################################################model methods################################################################
+
 function epsilon_greedy(game::SnakeGame, model::DQNModel, epsilon::Float32)::CartesianIndex{2}
 
           actions = [CartesianIndex(-1,0), CartesianIndex(1,0), CartesianIndex(0,-1), CartesianIndex(0,1)]
@@ -177,7 +180,22 @@ function update_target_net!(model::DQNModel)
           flat_params, reconstructor = Flux.destructure(model.q_net)
           model.t_net = reconstructor(flat_params)
 end
-###########################train#################################################################################   
+
+function save_model(model::DQNModel, name::String)
+          
+          path = "./models/"
+          if !isdir(path) mkpath(path) end
+          @save path * name * ".bson" model
+end
+
+function load_model(dir::String)::DQNModel
+    model = nothing
+    @load dir model
+    return model
+end
+
+###########################batch manipulation functions#################################################################################   
+
 function action_to_index(a::CartesianIndex{2})
     return ACTIONS[a]
 end
@@ -206,13 +224,43 @@ function stack_exp(batch::Vector{Experience})
     return (states_array, actions_array, rewards_array, next_states_array, done_array)
 end
 
-function train!(model::DQNModel, rpb::ReplayBuffer, n_batches::Int, target_update_rate::Int, epsilon::Float32)
+#############################################trainer methods#####################################################################
+function track_loss!(tr::Trainer, item)
+          push!(tr.losses, item)
+end
+
+#loading the model, from the Trainer class
+function load_model!(tr::Trainer, dir::String)
+          tr.model = load_model(dir)
+end
+
+function save_trainer(tr::Trainer, name::String)
+          path = "./trainers/"
+          if !isdir(path) mkpath(path) end
+          @save path * name * ".bson" tr
+end
+
+function load_trainer(dir::String)::Trainer
+          trainer = nothing
+          @load dir trainer
+          return trainer
+end
+
+function train!(tr::Trainer, trainer_name::String)
+          
+          #defining variables
+          rpb = tr.buffer
+          model = tr.model
+          n_batches = tr.n_batches
+          game = tr.game
+          epsilon = tr.epsilon
+          target_update_rate = tr.target_update_rate
+          
           fill_buffer!(rpb, model)
           opt_state = Flux.setup(model.opt, model.q_net)
           nb = 0
           
-          game = SnakeGame()
-          while nb < n_batches
+          while nb <= n_batches
                  action = epsilon_greedy(game, model, epsilon)
                  experience = get_step(game, action)
                  store!(rpb, experience)
@@ -234,7 +282,41 @@ function train!(model::DQNModel, rpb::ReplayBuffer, n_batches::Int, target_updat
 		 if nb % target_update_rate == 0 update_target_net!(model) end
 		 if game.lost game = SnakeGame() end
 		 if nb % 5 == 0 @printf "%d / %d -- loss %.3f \n" nb n_batches Flux.huber_loss(q_pred_selected, q_target) end
+		 if tr.save 
+		     track_loss!(tr, Flux.huber_loss(q_pred_selected, q_target))
+		     end
 		 nb += 1
-          end   
+          end 
+          if tr.save save_trainer(tr, trainer_name) end  
 end 
-          
+
+############################################################visualization functions##############################################
+
+function plot_loss(tr::Trainer; mv_avg::Bool = true, size::Int = 10, save_name::String)
+    batch_size = tr.buffer.batch_size
+    n_batches = tr.n_batches
+
+    # X: number of experience samples
+    x = [i * batch_size for i in 0:length(tr.losses)-1]
+    y = tr.losses
+
+    # Plot original loss
+    pl = plot(x, y, label = "Loss", lw = 2, lc = :blue)
+    xlabel!("Experience Samples")
+    ylabel!("Loss")
+
+    # Add moving average if requested
+    if mv_avg && length(y) ≥ size
+        z = [mean(y[i-size+1:i]) for i in size:length(y)]
+        x_avg = x[size:end]
+        plot!(x_avg, z, label = "Moving Avg", lw = 2, lc = :red)
+    end
+    
+    if tr.save
+        path = "./plots/"
+        if !isdir(path) mkpath(path) end
+        savefig(pl, path * save_name * ".png")
+    end
+end
+   
+            

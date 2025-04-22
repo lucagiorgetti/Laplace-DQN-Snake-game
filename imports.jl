@@ -4,6 +4,7 @@ using StatsBase
 using Flux
 using Flux.Optimise: RMSProp
 using Printf
+using BSON: @save, @load
 
 #type alias
 const Experience = Tuple{Matrix{Int64}, CartesianIndex{2}, Float32, Matrix{Int64}, Bool}
@@ -15,8 +16,5 @@ const ACTIONS = Dict(
     CartesianIndex(0, 1)  => 4   # Right
 )
 
-include("env.jl")      # defines SnakeGame
-include("model.jl")    # defines DQNModel (needs SnakeGame)
-include("buffer.jl")   # defines ReplayBuffer (needs DQNModel for fill_buffer!)
-include("train.jl")    # defines train! (needs everything)
-
+include("structs.jl")     
+include("utils.jl")   

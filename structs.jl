@@ -82,3 +82,30 @@ mutable struct DQNModel
     end
 end
 
+########################################wrapper object########################################################
+
+mutable struct Trainer
+    game::SnakeGame
+    model::DQNModel
+    buffer::ReplayBuffer
+    n_batches::Int
+    target_update_rate::Int
+    epsilon::Float32
+    save::Bool
+    losses::Vector{Float32}
+
+    function Trainer(; n_batches::Int = 1000, target_update_rate::Int = 100,
+                     epsilon::Float32 = 0.8f0, save::Bool = true,
+                     game::SnakeGame = SnakeGame(),
+                     model::Union{DQNModel, Nothing} = nothing)
+                     
+        model = isnothing(model) ? DQNModel(game) : model
+        buffer = ReplayBuffer()
+        losses = Float32[]
+        new(game, model, buffer, n_batches, target_update_rate, epsilon, save, losses)
+    end
+end
+
+              
+
+
