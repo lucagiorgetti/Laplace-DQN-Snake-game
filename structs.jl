@@ -91,18 +91,20 @@ mutable struct Trainer
     n_batches::Int
     target_update_rate::Int
     epsilon::Float32
+    epsilon_end::Float32
+    decay::Float32
     save::Bool
     losses::Vector{Float32}
 
     function Trainer(; n_batches::Int = 1000, target_update_rate::Int = 100,
-                     epsilon::Float32 = 0.8f0, save::Bool = true,
+                     epsilon::Float32 = 1.0f0, epsilon_end::Float32 = 0.01f0, decay::Float32= 0.0001f0, save::Bool = true,
                      game::SnakeGame = SnakeGame(),
                      model::Union{DQNModel, Nothing} = nothing)
                      
         model = isnothing(model) ? DQNModel(game) : model
         buffer = ReplayBuffer()
         losses = Float32[]
-        new(game, model, buffer, n_batches, target_update_rate, epsilon, save, losses)
+        new(game, model, buffer, n_batches, target_update_rate, epsilon, epsilon_end, decay, save, losses)
     end
 end
 

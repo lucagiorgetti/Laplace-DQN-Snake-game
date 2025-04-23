@@ -285,6 +285,7 @@ function train!(tr::Trainer, trainer_name::String)
 		 if tr.save 
 		     track_loss!(tr, Flux.huber_loss(q_pred_selected, q_target))
 		     end
+		 epsilon = max(epsilon - tr.decay, tr.epsilon_end)                            #linear epsilon decay
 		 nb += 1
           end 
           if tr.save save_trainer(tr, trainer_name) end  
@@ -318,5 +319,37 @@ function plot_loss(tr::Trainer; mv_avg::Bool = true, size::Int = 10, save_name::
         savefig(pl, path * save_name * ".png")
     end
 end
-   
+
+function play_game(tr::Trainer, gif_name::String)
+          plt = nothing
+          game = SnakeGame()
+          model = tr.model.q_net
+          plt = plot_or_update!(game)
+          sample_food!(game)
+          
+          break_next = false
+         
+          anim = @animate for i in 1:400                                    #I want to exit the loop when game.lost
+             if i > 1 && break_next == false
+                 game.direction = epsilon_greedy(game, model, 0.0f0)        #always the best action
+                 move_wrapper!(game)
+             end
+             
+             if break_next == true
+                break
+             end 
+             
+             plot_or_update!(game, plt)
+             
+             if game.lost
+                 @printf "Collision!! Final score %d, reward %.3f \n" game.score game.reward
+                 break_next = true
+             end
+         end
+         
+         path = "./gifs/"
+         if !isdir(path) mkpath(path) end
+         gif(anim, "./gifs/"*gif_name*".gif", fps=1)
+         return nothing    
+end
             
