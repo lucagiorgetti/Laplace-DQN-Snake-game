@@ -241,51 +241,51 @@ function save_trainer(tr::Trainer, name::String)
 end
 
 function load_trainer(dir::String)::Trainer
-          trainer = nothing
-          @load dir trainer
-          return trainer
+          tr = nothing
+          @load dir tr
+          return tr
 end
 
 function train!(tr::Trainer, trainer_name::String)
           
           #defining variables
-          rpb = tr.buffer
-          model = tr.model
+          #rpb = tr.buffer
+          #model = tr.model
           n_batches = tr.n_batches
           game = tr.game
-          epsilon = tr.epsilon
+          #epsilon = tr.epsilon
           target_update_rate = tr.target_update_rate
           
-          fill_buffer!(rpb, model)
-          opt_state = Flux.setup(model.opt, model.q_net)
+          fill_buffer!(tr.buffer, tr.model)
+          opt_state = Flux.setup(tr.model.opt, tr.model.q_net)
           nb = 0
           
           while nb <= n_batches
-                 action = epsilon_greedy(game, model, epsilon)
+                 action = epsilon_greedy(game, tr.model, tr.epsilon)
                  experience = get_step(game, action)
-                 store!(rpb, experience)
+                 store!(tr.buffer, experience)
                  
-                 batch = sample(rpb)
+                 batch = sample(tr.buffer)
                  states, actions, rewards, next_states, dones = stack_exp(batch)
-                 q_pred = model.q_net(states)                                               # (n_actions, batch_size)
+                 q_pred = tr.model.q_net(states)                                               # (n_actions, batch_size)
     		 q_pred_selected = [q_pred[a, i] for (i, a) in enumerate(actions)]
     		 q_pred_selected = reshape(q_pred_selected, :)                              # (batch_size,)
-    		 q_next = model.t_net(next_states)
+    		 q_next = tr.model.t_net(next_states)
     		 max_next_q = dropdims(maximum(q_next, dims = 1), dims = 1)                 # (batch_size,)
 		 q_target = @. rewards + game.discount * max_next_q * (1 - dones)
 		 
-		 grads = Flux.gradient(model.q_net) do m
+		 grads = Flux.gradient(tr.model.q_net) do m
 		     Flux.huber_loss(q_pred_selected, q_target)
 		 end
-		 Flux.update!(opt_state, model.q_net, grads[1])
+		 Flux.update!(opt_state, tr.model.q_net, grads[1])
 		 
-		 if nb % target_update_rate == 0 update_target_net!(model) end
+		 if nb % target_update_rate == 0 update_target_net!(tr.model) end
 		 if game.lost game = SnakeGame() end
 		 if nb % 5 == 0 @printf "%d / %d -- loss %.3f \n" nb n_batches Flux.huber_loss(q_pred_selected, q_target) end
 		 if tr.save 
 		     track_loss!(tr, Flux.huber_loss(q_pred_selected, q_target))
 		     end
-		 epsilon = max(epsilon - tr.decay, tr.epsilon_end)                            #linear epsilon decay
+		 tr.epsilon = max(tr.epsilon - tr.decay, tr.epsilon_end)                            #linear epsilon decay
 		 nb += 1
           end 
           if tr.save save_trainer(tr, trainer_name) end  
@@ -323,7 +323,7 @@ end
 function play_game(tr::Trainer, gif_name::String)
           plt = nothing
           game = SnakeGame()
-          model = tr.model.q_net
+          model = tr.model
           plt = plot_or_update!(game)
           sample_food!(game)
           

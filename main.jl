@@ -1,5 +1,5 @@
 include("imports.jl")
 
-tr = Trainer()
+tr = Trainer(n_batches = 10000)
 train!(tr, "short_training")
-plot_loss(tr; mv_avg = true, save_name = "short_training")
+
