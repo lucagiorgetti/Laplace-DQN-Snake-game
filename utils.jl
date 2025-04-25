@@ -249,11 +249,9 @@ end
 function train!(tr::Trainer, trainer_name::String)
           
           #defining variables
-          #rpb = tr.buffer
-          #model = tr.model
+      
           n_batches = tr.n_batches
           game = tr.game
-          #epsilon = tr.epsilon
           target_update_rate = tr.target_update_rate
           
           fill_buffer!(tr.buffer, tr.model)
@@ -274,10 +272,20 @@ function train!(tr::Trainer, trainer_name::String)
     		 max_next_q = dropdims(maximum(q_next, dims = 1), dims = 1)                 # (batch_size,)
 		 q_target = @. rewards + game.discount * max_next_q * (1 - dones)
 		 
-		 grads = Flux.gradient(tr.model.q_net) do m
-		     Flux.huber_loss(q_pred_selected, q_target)
+		 function loss_fun(z)
+		           q_pred_selected = [z[a, i] for (i, a) in enumerate(actions)]
+		           q_pred_selected = reshape(q_pred_selected, :) 
+		           return Flux.huber_loss(q_pred_selected, q_target)
 		 end
-		 Flux.update!(opt_state, tr.model.q_net, grads[1])
+		 
+		 #doing the update
+		 grads = Flux.gradient(tr.model.q_net) do m
+		       q_pred = m(states)
+                       loss_fun(q_pred)
+                 end
+
+                 Flux.update!(opt_state, tr.model.q_net, grads[1])
+                 if isnothing(grads[1]) @warn "Network has not been updated" end
 		 
 		 if nb % target_update_rate == 0 update_target_net!(tr.model) end
 		 if game.lost game = SnakeGame() end
