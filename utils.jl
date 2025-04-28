@@ -74,6 +74,7 @@ function grow_maybe!(game::SnakeGame)
         sample_food!(game)
         game.score += 1
         game.reward = 1 + game.discount * game.reward   #immediate reward = 1 for eating food
+        @info "food in ($(new_head[1]),$(new_head[2])) eaten!"
     else
         remove_tail!(game)  # Normal move (no food)
     end
@@ -93,13 +94,14 @@ function move_wrapper!(game::SnakeGame)
     game.prev_move = game.direction
 end
 
+#get_step seems to be broken, saves the same state twice and execute the action twice
 function get_step(game::SnakeGame, action::CartesianIndex{2})::Experience
          
-          state = game.state
+          state = deepcopy(game.state)
           game.direction = action
           move_wrapper!(game)
           reward = game.reward
-          next_state = game.state
+          next_state = deepcopy(game.state)
           if game.lost
              return (state, action, reward, next_state, true)
           else 
@@ -156,11 +158,12 @@ end
 
 function empty_buffer!(rpb::ReplayBuffer)
            rpb.buffer = Vector{Experience}(undef, 0)
+           rpb.position = 1
 end 
 
 ##################################################model methods################################################################
 
-function epsilon_greedy(game::SnakeGame, model::DQNModel, epsilon::Float32)::CartesianIndex{2}
+function epsilon_greedy(game::SnakeGame, model::DQNModel, epsilon::Float32; debug::Bool=false)::CartesianIndex{2}
 
           actions = [CartesianIndex(-1,0), CartesianIndex(1,0), CartesianIndex(0,-1), CartesianIndex(0,1)]
           
@@ -172,7 +175,14 @@ function epsilon_greedy(game::SnakeGame, model::DQNModel, epsilon::Float32)::Car
              exp_rewards = model.q_net(state)
              max_idx = argmax(exp_rewards)
              act = actions[max_idx]
+             if debug
+              println("--------------------------------------------------------")
+              println("q_values: ", exp_rewards)
+              println("argmax: ", max_idx)
+              println("--------------------------------------------------------")
           end
+          end
+
           return act
 end
 
@@ -333,7 +343,7 @@ function play_game(tr::Trainer, gif_name::String)
           game = SnakeGame()
           model = tr.model
           plt = plot_or_update!(game)
-          sample_food!(game)
+          #sample_food!(game)                                               #I am placing the first directly from inside the struct
           
           break_next = false
          
@@ -355,9 +365,62 @@ function play_game(tr::Trainer, gif_name::String)
              end
          end
          
-         path = "./gifs/"
+         path = "./trainer_gifs/"
          if !isdir(path) mkpath(path) end
-         gif(anim, "./gifs/"*gif_name*".gif", fps=1)
+         gif(anim, path*gif_name*".gif", fps=1)
          return nothing    
 end
-            
+
+function state_to_img!(state::Matrix{Int})
+           h, w = size(state)
+           img = fill(ARGB32(1, 1, 1, 1), h, w)    # White background
+
+           for i in 1:h, j in 1:w
+               if state[i, j] == -1               # Walls
+                   img[i, j] = ARGB32(0, 0, 0, 1)  # Black
+               elseif state[i, j] == 1            # Snake
+                   img[i, j] = ARGB32(0, 1, 0, 1)  # Green
+               elseif state[i, j] == 2            # Food
+                    img[i, j] = ARGB32(1, 0, 0, 1)  # Red
+               end
+            end
+
+         return img
+end 
+
+#visualize a game sampled from the buffer, something in the storing of experience in the buffer is wrong
+function sample_game(rpb::ReplayBuffer; gif_name::String)
+          
+          #sampling the game
+          game_states = []
+          start_idx = rand(1:length(rpb) - Int((floor(30/100 * length(rpb))))) #I want a diffent game everytime I call this function 
+          copy_idx = 0
+          done = false
+          
+          for i in start_idx:length(rpb)
+               if rpb.buffer[i][5] 
+                   copy_idx = i + 1
+                   break
+               end
+          end
+          
+          while !done
+                example = rpb.buffer[copy_idx]
+                push!(game_states, example[1], example[4])   #append state and next_state
+                copy_idx += 1
+                done = example[end]
+          end
+          
+          unique_states = unique(game_states)
+          frames = state_to_img!.(unique_states)
+          
+          #plotting the game
+          anim = @animate for i in 1:length(frames)
+                  plot(frames[i], framestyle = :none)
+          end
+          
+          path = "./buffer_gifs/"
+          if !isdir(path) mkpath(path) end
+          gif(anim, path*gif_name*".gif", fps=1)
+          return game_states
+end          

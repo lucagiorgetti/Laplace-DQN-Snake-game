@@ -21,6 +21,9 @@ mutable struct SnakeGame
         state[end, :] .= -1
         state[:, 1] .= -1
         state[:, end] .= -1
+        
+        #initialize food
+        state[4, 5] = 2
 
         # Initialize the snake (bottom-left)
         
@@ -31,8 +34,8 @@ mutable struct SnakeGame
         end 
         
         #initialize direction (for now)
-        direction = CartesianIndex(-1,0)  #move up
-        prev_move = CartesianIndex(0,0)   #stay still
+        direction = CartesianIndex(0,0)   # this will be overwritten 
+        prev_move = CartesianIndex(-1,0)   #move up, this is important: I need to check if the next move is not move down, otherwise game is lost
         
         lost = false
         
