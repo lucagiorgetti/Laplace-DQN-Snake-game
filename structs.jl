@@ -1,3 +1,4 @@
+#structs.jl
 #######################environment object############################################àà
 
 mutable struct SnakeGame
@@ -51,7 +52,7 @@ mutable struct ReplayBuffer
         buffer::Vector{Experience}
         batch_size::Int
         
-        function ReplayBuffer(capacity = 10000)
+        function ReplayBuffer(capacity = 100000)
                   buffer = Vector{Experience}(undef, 0)
                   batch_size = 64
                   if batch_size > capacity throw("batch_size cannot be greater than the capacity of the buffer.") end
@@ -75,7 +76,7 @@ mutable struct DQNModel
             Conv((6, 6), 32 => 64, relu),
             Flux.flatten,
             Dense(((board_size - 5) * (board_size - 5) * 64), 64, relu),
-            Dense(64, 4)                 #output n_actions == 4
+            Dense(64, 3)                 #output n_available_actions == 3
         )
 
         t_net = deepcopy(q_net)
@@ -99,8 +100,8 @@ mutable struct Trainer
     save::Bool
     losses::Vector{Float32}
 
-    function Trainer(; n_batches::Int = 1000, target_update_rate::Int = 100,
-                     epsilon::Float32 = 1.0f0, epsilon_end::Float32 = 0.01f0, decay::Float32= 0.0001f0, save::Bool = true,
+    function Trainer(; n_batches::Int = 1000, target_update_rate::Int = 1000,
+                     epsilon::Float32 = 1.0f0, epsilon_end::Float32 = 0.05f0, decay::Float32= 0.00001f0, save::Bool = true,
                      game::SnakeGame = SnakeGame(),
                      model::Union{DQNModel, Nothing} = nothing)
                      

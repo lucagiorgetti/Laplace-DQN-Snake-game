@@ -1,4 +1,10 @@
+#utils.jl
 ################################################## environment methods ###############################################
+#get available actions: reverse is never an option
+function available_actions(game::SnakeGame)
+          all_actions = [CartesianIndex(-1,0), CartesianIndex(1,0), CartesianIndex(0,-1), CartesianIndex(0,1)]
+          return [a for a in all_actions if a + game.prev_move != CartesianIndex(0,0)]
+end
 
 # Function to plot the game state
 function plot_or_update!(game::SnakeGame, plt::Union{Plots.Plot, Missing, Nothing} = missing)
@@ -56,7 +62,7 @@ end
 #function to check collision, must be modified
 function check_collision(game::SnakeGame) :: Bool
     head = game.snake[1]
-    return game.state[head] == -1 ||  count(==(head), game.snake) > 1 ||  game.prev_move + game.direction == CartesianIndex(0,0)   #true for a collision false otherwise, first condition check collision with the wall, second and third ones collisions with the snake itself.
+    return game.state[head] == -1 ||  count(==(head), game.snake) > 1 ||  game.prev_move + game.direction == CartesianIndex(0,0)   #true for a collision false otherwise, first condition check collision with the wall, second and third ones collisions with the snake itself. TODO:last condition should be useless
 end
 
 #remove tail
@@ -73,10 +79,11 @@ function grow_maybe!(game::SnakeGame)
     if game.state[new_head] == 2  
         sample_food!(game)
         game.score += 1
-        game.reward = 1 + game.discount * game.reward   #immediate reward = 1 for eating food
+        game.reward = 1.0f0                     #immediate reward = 1 for eating food
         @info "food in ($(new_head[1]),$(new_head[2])) eaten!"
     else
         remove_tail!(game)  # Normal move (no food)
+        game.reward = -0.001f0                #small penalty for surviving without eating anything
     end
 end
 
@@ -87,7 +94,7 @@ function move_wrapper!(game::SnakeGame)
     
     if check_collision(game) 
         game.lost = true 
-        game.reward = -1 + game.discount * game.reward   #immediate reward = -1 if he looses
+        game.reward = -1.0f0                     #immediate reward = -1 if he looses
     end
 
     update_state!(game)
@@ -98,14 +105,15 @@ end
 function get_step(game::SnakeGame, action::CartesianIndex{2})::Experience
          
           state = deepcopy(game.state)
+          av_actions = available_actions(game)
           game.direction = action
           move_wrapper!(game)
-          reward = game.reward
+          reward = deepcopy(game.reward)
           next_state = deepcopy(game.state)
           if game.lost
-             return (state, action, reward, next_state, true)
+             return (state, action, reward, next_state, true, av_actions)
           else 
-             return (state, action, reward, next_state, false)
+             return (state, action, reward, next_state, false, av_actions)
           end
 end
 
@@ -146,6 +154,7 @@ function isready(rpb::ReplayBuffer)
 end
 
 function fill_buffer!(rpb::ReplayBuffer, model::DQNModel)
+         println("############################## FILLING THE BUFFER ###############################")
          game = SnakeGame()
          while !isfull(rpb)
                # epsilon-greedy policy
@@ -154,6 +163,7 @@ function fill_buffer!(rpb::ReplayBuffer, model::DQNModel)
                store!(rpb, exp)
                if game.lost game = SnakeGame() end 
          end 
+         println("##############################  BUFFER FULL ######################################")
 end 
 
 function empty_buffer!(rpb::ReplayBuffer)
@@ -165,21 +175,23 @@ end
 
 function epsilon_greedy(game::SnakeGame, model::DQNModel, epsilon::Float32; debug::Bool=false)::CartesianIndex{2}
 
-          actions = [CartesianIndex(-1,0), CartesianIndex(1,0), CartesianIndex(0,-1), CartesianIndex(0,1)]
+          av_actions = available_actions(game)
           
           state = reshape(game.state, game.state_size, game.state_size, 1, 1)
           
           if Float32(only(rand(1))) < epsilon
-              act = rand(actions)
+              act = rand(av_actions)
           else
              exp_rewards = model.q_net(state)
              max_idx = argmax(exp_rewards)
-             act = actions[max_idx]
+             act = av_actions[max_idx]
              if debug
+              println("--------------------EPSILON GREEDY LOGGIN-----------------------------")
               println("--------------------------------------------------------")
               println("q_values: ", exp_rewards)
               println("argmax: ", max_idx)
               println("--------------------------------------------------------")
+              println("--------------------END EPSILON GREEDY LOGGIN-----------------------------")
           end
           end
 
@@ -205,10 +217,11 @@ function load_model(dir::String)::DQNModel
 end
 
 ###########################batch manipulation functions#################################################################################   
-
+"""
 function action_to_index(a::CartesianIndex{2})
     return ACTIONS[a]
 end
+"""
 
 function stack_exp(batch::Vector{Experience})
     batch_size = length(batch)
@@ -222,11 +235,11 @@ function stack_exp(batch::Vector{Experience})
     done_array        = Array{Bool}(undef, batch_size)
 
     for i in 1:batch_size
-        s, a, r, s_next, done = batch[i]
+        s, a, r, s_next, done, av_acts = batch[i]
 
         states_array[:, :, 1, i]      .= Float32.(s)
         next_states_array[:, :, 1, i] .= Float32.(s_next)
-        actions_array[i]  = action_to_index(a)
+        actions_array[i]  = findfirst(isequal(a), av_acts)
         rewards_array[i]  = Float32(r)
         done_array[i]     = done
     end
@@ -268,6 +281,7 @@ function train!(tr::Trainer, trainer_name::String)
           opt_state = Flux.setup(tr.model.opt, tr.model.q_net)
           nb = 0
           
+          println("############################## START TRAINING ###############################")
           while nb <= n_batches
                  action = epsilon_greedy(game, tr.model, tr.epsilon)
                  experience = get_step(game, action)
@@ -275,7 +289,7 @@ function train!(tr::Trainer, trainer_name::String)
                  
                  batch = sample(tr.buffer)
                  states, actions, rewards, next_states, dones = stack_exp(batch)
-                 q_pred = tr.model.q_net(states)                                               # (n_actions, batch_size)
+                 q_pred = tr.model.q_net(states)                                            # (n_actions, batch_size)
     		 q_pred_selected = [q_pred[a, i] for (i, a) in enumerate(actions)]
     		 q_pred_selected = reshape(q_pred_selected, :)                              # (batch_size,)
     		 q_next = tr.model.t_net(next_states)
@@ -305,7 +319,8 @@ function train!(tr::Trainer, trainer_name::String)
 		     end
 		 tr.epsilon = max(tr.epsilon - tr.decay, tr.epsilon_end)                            #linear epsilon decay
 		 nb += 1
-          end 
+          end         
+          println("############################## END TRAINING ###############################")
           if tr.save save_trainer(tr, trainer_name) end  
 end 
 
@@ -397,12 +412,14 @@ function sample_game(rpb::ReplayBuffer; gif_name::String)
           copy_idx = 0
           done = false
           
+        
           for i in start_idx:length(rpb)
                if rpb.buffer[i][5] 
                    copy_idx = i + 1
                    break
                end
           end
+          
           
           while !done
                 example = rpb.buffer[copy_idx]
@@ -413,6 +430,7 @@ function sample_game(rpb::ReplayBuffer; gif_name::String)
           
           unique_states = unique(game_states)
           frames = state_to_img!.(unique_states)
+          
           
           #plotting the game
           anim = @animate for i in 1:length(frames)
