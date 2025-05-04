@@ -8,13 +8,17 @@ mutable struct SnakeGame
     prev_move::CartesianIndex{2}
     score::Int
     reward::Float32
-    rng::AbstractRNG
+    #defining some constants for clarity
+    eating_reward::Float32
+    suicide_penalty::Float32
+    male_di_vivere::Float32
+    food_rng::AbstractRNG
     state_size::Int
     lost::Bool
     discount::Float32  
 
     # Custom constructor
-    function SnakeGame(state_size = 10, discount = 0.99, rng = Xoshiro(42))
+    function SnakeGame(state_size = 10, discount = 0.99, food_rng = Xoshiro(42))
         state = zeros(Int, (state_size, state_size))  # Create empty grid
 
         # Draw walls (-1)
@@ -40,7 +44,7 @@ mutable struct SnakeGame
         
         lost = false
         
-        new(state, snake, direction, prev_move, 0, 0, rng, state_size, lost, discount)
+        new(state, snake, direction, prev_move, 0, 0.0f0, 2.0f0, -1.0f0, -0.1f0, food_rng, state_size, lost, discount)
     end
 end
 
@@ -51,12 +55,14 @@ mutable struct ReplayBuffer
         position::Int
         buffer::Vector{Experience}
         batch_size::Int
+        buffer_rng::AbstractRNG
         
         function ReplayBuffer(capacity = 100000)
                   buffer = Vector{Experience}(undef, 0)
                   batch_size = 64
                   if batch_size > capacity throw("batch_size cannot be greater than the capacity of the buffer.") end
-                  new(capacity, 1, buffer, batch_size)
+                  buffer_rng = Xoshiro(42)
+                  new(capacity, 1, buffer, batch_size, buffer_rng)
         end
 end
 
@@ -66,8 +72,9 @@ mutable struct DQNModel
     q_net::Chain
     t_net::Chain
     opt::RMSProp
+    model_rng::AbstractRNG
 
-    function DQNModel(game::SnakeGame)
+    function DQNModel(game::SnakeGame, model_rng = Xoshiro(42))
         board_size = game.state_size
 
         q_net = Chain(
@@ -82,7 +89,7 @@ mutable struct DQNModel
         t_net = deepcopy(q_net)
         opt = RMSProp(0.0005)   
 
-        new(q_net, t_net, opt)
+        new(q_net, t_net, opt, model_rng)
     end
 end
 
@@ -99,6 +106,7 @@ mutable struct Trainer
     decay::Float32
     save::Bool
     losses::Vector{Float32}
+    episode_rewards::Vector{Float32}
 
     function Trainer(; n_batches::Int = 1000, target_update_rate::Int = 1000,
                      epsilon::Float32 = 1.0f0, epsilon_end::Float32 = 0.05f0, decay::Float32= 0.00001f0, save::Bool = true,
@@ -108,7 +116,8 @@ mutable struct Trainer
         model = isnothing(model) ? DQNModel(game) : model
         buffer = ReplayBuffer()
         losses = Float32[]
-        new(game, model, buffer, n_batches, target_update_rate, epsilon, epsilon_end, decay, save, losses)
+        episode_rewards = Float32[]
+        new(game, model, buffer, n_batches, target_update_rate, epsilon, epsilon_end, decay, save, losses, episode_rewards)
     end
 end
 

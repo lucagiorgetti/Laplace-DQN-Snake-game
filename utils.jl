@@ -41,10 +41,13 @@ function sample_food!(game::SnakeGame)
     end
 
     # Pick a random empty spot
-    food_pos = rand(game.rng, empty_positions)
+    food_pos = rand(game.food_rng, empty_positions)
 
     # Update game state
     game.state[food_pos] = 2
+    
+    @debug "Empty positions:" empty_positions = empty_positions
+    @debug "Placing food at $food_pos"
 end 
 
 #update state
@@ -77,13 +80,14 @@ function grow_maybe!(game::SnakeGame)
 
     # If food is eaten, place new food and increase score and reward
     if game.state[new_head] == 2  
-        sample_food!(game)
         game.score += 1
-        game.reward = 1.0f0                     #immediate reward = 1 for eating food
-        @info "food in ($(new_head[1]),$(new_head[2])) eaten!"
+        game.reward = game.eating_reward                               #immediate reward = 1 for eating food
+        @debug "food in ($(new_head[1]),$(new_head[2])) eaten!" reward = game.reward
+        sample_food!(game)
     else
         remove_tail!(game)  # Normal move (no food)
-        game.reward = -0.001f0                #small penalty for surviving without eating anything
+        game.reward = game.male_di_vivere                              #small penalty for surviving without eating anything
+        #@debug "no food is eaten!" reward = game.reward
     end
 end
 
@@ -94,7 +98,8 @@ function move_wrapper!(game::SnakeGame)
     
     if check_collision(game) 
         game.lost = true 
-        game.reward = -1.0f0                     #immediate reward = -1 if he looses
+        game.reward = game.suicide_penalty                             #immediate reward = -1 if he looses
+        #@debug "Collision!" reward = game.reward
     end
 
     update_state!(game)
@@ -138,9 +143,9 @@ end
 function sample(rpb::ReplayBuffer)::Vector{Experience}
           batch_size = rpb.batch_size
           if length(rpb) < batch_size
-              return StatsBase.sample(rpb.buffer, length(rpb); replace = false)     
+              return StatsBase.sample(rpb.buffer_rng, rpb.buffer, length(rpb); replace = false)     
           else
-              return StatsBase.sample(rpb.buffer, batch_size; replace = false)
+              return StatsBase.sample(rpb.buffer_rng, rpb.buffer, batch_size; replace = false)
           end 
 end
 
@@ -154,7 +159,7 @@ function isready(rpb::ReplayBuffer)
 end
 
 function fill_buffer!(rpb::ReplayBuffer, model::DQNModel)
-         println("############################## FILLING THE BUFFER ###############################")
+         @info "############################## FILLING THE BUFFER ###############################"
          game = SnakeGame()
          while !isfull(rpb)
                # epsilon-greedy policy
@@ -163,7 +168,7 @@ function fill_buffer!(rpb::ReplayBuffer, model::DQNModel)
                store!(rpb, exp)
                if game.lost game = SnakeGame() end 
          end 
-         println("##############################  BUFFER FULL ######################################")
+         @info "##############################  BUFFER FULL ######################################"
 end 
 
 function empty_buffer!(rpb::ReplayBuffer)
@@ -173,26 +178,18 @@ end
 
 ##################################################model methods################################################################
 
-function epsilon_greedy(game::SnakeGame, model::DQNModel, epsilon::Float32; debug::Bool=false)::CartesianIndex{2}
+function epsilon_greedy(game::SnakeGame, model::DQNModel, epsilon::Float32)::CartesianIndex{2}
 
           av_actions = available_actions(game)
           
           state = reshape(game.state, game.state_size, game.state_size, 1, 1)
           
-          if Float32(only(rand(1))) < epsilon
-              act = rand(av_actions)
+          if Float32(only(rand(model.model_rng,1))) < epsilon
+              act = rand(model.model_rng,av_actions)
           else
              exp_rewards = model.q_net(state)
              max_idx = argmax(exp_rewards)
              act = av_actions[max_idx]
-             if debug
-              println("--------------------EPSILON GREEDY LOGGIN-----------------------------")
-              println("--------------------------------------------------------")
-              println("q_values: ", exp_rewards)
-              println("argmax: ", max_idx)
-              println("--------------------------------------------------------")
-              println("--------------------END EPSILON GREEDY LOGGIN-----------------------------")
-          end
           end
 
           return act
@@ -247,86 +244,47 @@ function stack_exp(batch::Vector{Experience})
     return (states_array, actions_array, rewards_array, next_states_array, done_array)
 end
 
-#############################################trainer methods#####################################################################
-function track_loss!(tr::Trainer, item)
-          push!(tr.losses, item)
-end
-
-#loading the model, from the Trainer class
-function load_model!(tr::Trainer, dir::String)
-          tr.model = load_model(dir)
-end
-
-function save_trainer(tr::Trainer, name::String)
-          path = "./trainers/"
-          if !isdir(path) mkpath(path) end
-          @save path * name * ".bson" tr
-end
-
-function load_trainer(dir::String)::Trainer
-          tr = nothing
-          @load dir tr
-          return tr
-end
-
-function train!(tr::Trainer, trainer_name::String)
-          
-          #defining variables
-      
-          n_batches = tr.n_batches
-          game = tr.game
-          target_update_rate = tr.target_update_rate
-          
-          fill_buffer!(tr.buffer, tr.model)
-          opt_state = Flux.setup(tr.model.opt, tr.model.q_net)
-          nb = 0
-          
-          println("############################## START TRAINING ###############################")
-          while nb <= n_batches
-                 action = epsilon_greedy(game, tr.model, tr.epsilon)
-                 experience = get_step(game, action)
-                 store!(tr.buffer, experience)
-                 
-                 batch = sample(tr.buffer)
-                 states, actions, rewards, next_states, dones = stack_exp(batch)
-                 q_pred = tr.model.q_net(states)                                            # (n_actions, batch_size)
-    		 q_pred_selected = [q_pred[a, i] for (i, a) in enumerate(actions)]
-    		 q_pred_selected = reshape(q_pred_selected, :)                              # (batch_size,)
-    		 q_next = tr.model.t_net(next_states)
-    		 max_next_q = dropdims(maximum(q_next, dims = 1), dims = 1)                 # (batch_size,)
-		 q_target = @. rewards + game.discount * max_next_q * (1 - dones)
-		 
-		 function loss_fun(z)
-		           q_pred_selected = [z[a, i] for (i, a) in enumerate(actions)]
-		           q_pred_selected = reshape(q_pred_selected, :) 
-		           return Flux.huber_loss(q_pred_selected, q_target)
-		 end
-		 
-		 #doing the update
-		 grads = Flux.gradient(tr.model.q_net) do m
-		       q_pred = m(states)
-                       loss_fun(q_pred)
-                 end
-
-                 Flux.update!(opt_state, tr.model.q_net, grads[1])
-                 if isnothing(grads[1]) @warn "Network has not been updated" end
-		 
-		 if nb % target_update_rate == 0 update_target_net!(tr.model) end
-		 if game.lost game = SnakeGame() end
-		 if nb % 5 == 0 @printf "%d / %d -- loss %.3f \n" nb n_batches Flux.huber_loss(q_pred_selected, q_target) end
-		 if tr.save 
-		     track_loss!(tr, Flux.huber_loss(q_pred_selected, q_target))
-		     end
-		 tr.epsilon = max(tr.epsilon - tr.decay, tr.epsilon_end)                            #linear epsilon decay
-		 nb += 1
-          end         
-          println("############################## END TRAINING ###############################")
-          if tr.save save_trainer(tr, trainer_name) end  
-end 
-
 ############################################################visualization functions##############################################
+#log infos
 
-function plot_loss(tr::Trainer; mv_avg::Bool = true, size::Int = 10, save_name::String)
+function log_hyperparameters(trainer::Trainer)
+    game = trainer.game
+    model = trainer.model
+    buffer = trainer.buffer
+
+    hyperparams = Dict(
+        # Environment rewards
+        :eating_reward => game.eating_reward,
+        :suicide_penalty => game.suicide_penalty,
+        :male_di_vivere => game.male_di_vivere,
+
+        # Environment settings
+        :state_size => game.state_size,
+        :discount => game.discount,
+
+        # Training
+        :epsilon_start => trainer.epsilon,
+        :epsilon_end => trainer.epsilon_end,
+        :epsilon_decay => trainer.decay,
+        :n_batches => trainer.n_batches,
+        :target_update_rate => trainer.target_update_rate,
+        :replay_buffer_capacity => buffer.capacity,
+        :replay_buffer_batch_size => buffer.batch_size,
+
+        # Optimizer
+        :learning_rate => model.opt.eta
+    )
+
+    @info "=== Hyperparameters ==="
+    for (k, v) in hyperparams
+        @info string(k) * " => " * string(v)
+    end
+
+    return nothing
+end
+
+
+function plot_loss(tr::Trainer; size::Int = 100, save_name::String)
     batch_size = tr.buffer.batch_size
     n_batches = tr.n_batches
 
@@ -340,17 +298,16 @@ function plot_loss(tr::Trainer; mv_avg::Bool = true, size::Int = 10, save_name::
     ylabel!("Loss")
 
     # Add moving average if requested
-    if mv_avg && length(y) ≥ size
+    if length(y) ≥ size
         z = [mean(y[i-size+1:i]) for i in size:length(y)]
         x_avg = x[size:end]
         plot!(x_avg, z, label = "Moving Avg", lw = 2, lc = :red)
     end
-    
-    if tr.save
-        path = "./plots/"
-        if !isdir(path) mkpath(path) end
-        savefig(pl, path * save_name * ".png")
-    end
+       
+    path = "./plots/"
+    if !isdir(path) mkpath(path) end
+    savefig(pl, path * save_name * ".png")
+
 end
 
 function play_game(tr::Trainer, gif_name::String)
@@ -358,8 +315,7 @@ function play_game(tr::Trainer, gif_name::String)
           game = SnakeGame()
           model = tr.model
           plt = plot_or_update!(game)
-          #sample_food!(game)                                               #I am placing the first directly from inside the struct
-          
+                    
           break_next = false
          
           anim = @animate for i in 1:400                                    #I want to exit the loop when game.lost
@@ -375,7 +331,7 @@ function play_game(tr::Trainer, gif_name::String)
              plot_or_update!(game, plt)
              
              if game.lost
-                 @printf "Collision!! Final score %d, reward %.3f \n" game.score game.reward
+                 @printf "Collision!! Final score %d \n" game.score
                  break_next = true
              end
          end
@@ -441,4 +397,154 @@ function sample_game(rpb::ReplayBuffer; gif_name::String)
           if !isdir(path) mkpath(path) end
           gif(anim, path*gif_name*".gif", fps=1)
           return game_states
-end          
+end
+
+#plot average rewards
+function plot_avg_rewards(tr::Trainer; size::Int=100, save_name::String)
+          x = [i for i in 0:length(tr.episode_rewards)-1]
+          y = tr.episode_rewards
+          if length(y) ≥ size
+              z = [mean(y[i-size+1:i]) for i in size:length(y)]
+              x_avg = x[size:end]
+              pl = plot(x_avg, z, label = "Moving Avg", lw = 2, lc = :red)
+              xlabel!("episodes")
+              ylabel!("average reward over $size episodes")
+          end
+          path = "./episode_rewards/"
+          if !isdir(path) mkpath(path) end
+          savefig(pl, path*save_name*".png")
+          return nothing    
+end     
+
+function plot_and_play(tr::Trainer; size::Int=100, save_name::String)
+          plot_loss(tr; size = size, save_name = save_name)
+          plot_avg_rewards(tr; size = size, save_name = save_name)
+          play_game(tr, save_name)
+end 
+#############################################trainer methods#####################################################################
+
+#method fill the buffer for the trainer, useful to debug
+function fill_buffer!(tr::Trainer)
+         @info "############################## FILLING THE BUFFER ###############################"
+         game = SnakeGame()
+         
+         while !isfull(tr.buffer)
+               # epsilon-greedy policy
+               action = epsilon_greedy(game, tr.model, tr.epsilon)
+               exp = get_step(game, action)
+               store!(tr.buffer, exp)
+         end 
+         @info "##############################  BUFFER FULL ######################################"
+end 
+
+function track_loss!(tr::Trainer, item)
+          push!(tr.losses, item)
+end
+
+#loading the model, from the Trainer class
+function load_model!(tr::Trainer, dir::String)
+          tr.model = load_model(dir)
+end
+
+function save_trainer(tr::Trainer, name::String)
+          path = "./trainers/"
+          if !isdir(path) mkpath(path) end
+          @save path * name * ".bson" tr
+end
+
+function load_trainer(dir::String)::Trainer
+          tr = nothing
+          @load dir tr
+          return tr
+end
+
+function train!(tr::Trainer; trainer_name::String)
+          
+          #defining variables
+          if tr.save log_hyperparameters(tr) end
+      
+          n_batches = tr.n_batches
+          game = tr.game
+          target_update_rate = tr.target_update_rate
+          
+          fill_buffer!(tr.buffer, tr.model)
+          opt_state = Flux.setup(tr.model.opt, tr.model.q_net)
+          episode_reward = 0.0f0
+          nb = 0
+          
+          @info "############################## START TRAINING ###############################"
+          while nb <= n_batches
+                 
+                 @debug "######################### BATCH $nb ###################################"
+                 action = epsilon_greedy(game, tr.model, tr.epsilon)
+                 experience = get_step(game, action)
+                 
+                 episode_reward += experience[3]
+                 store!(tr.buffer, experience)
+                 
+                 batch = sample(tr.buffer)
+                 states, actions, rewards, next_states, dones = stack_exp(batch)
+                 
+                 @debug "Batch $nb | Sampled batch size: $(length(actions))"
+                 @debug "States shape: $(size(states)), Next states shape: $(size(next_states))"
+                 @debug "Actions:" actions = actions
+                 @debug "Rewards and dones:" rewards = rewards dones=dones
+                 
+                 q_pred = tr.model.q_net(states)                                            # (n_actions, batch_size)
+    		 q_pred_selected = [q_pred[a, i] for (i, a) in enumerate(actions)]
+    		 q_pred_selected = reshape(q_pred_selected, :)                              # (batch_size,)
+    		 q_next = tr.model.t_net(next_states)
+    		 max_next_q = dropdims(maximum(q_next, dims = 1), dims = 1)                 # (batch_size,)
+		 q_target = @. rewards + game.discount * max_next_q * (1 - dones)
+		 
+		 @debug "Q_pred_selected:" q_pred_selected = q_pred_selected
+                 @debug "Max_next_q:" max_next_q =max_next_q
+                 @debug "Q_target:" q_target=q_target
+		 
+		 function loss_fun(z)
+		           q_pred_selected = [z[a, i] for (i, a) in enumerate(actions)]
+		           q_pred_selected = reshape(q_pred_selected, :)
+		           return Flux.huber_loss(q_pred_selected, q_target)
+		 end
+		 
+		 #doing the update
+		 grads = Flux.gradient(tr.model.q_net) do m
+		       q_pred = m(states)
+                       loss_fun(q_pred)
+                 end
+
+                 Flux.update!(opt_state, tr.model.q_net, grads[1])
+                 if isnothing(grads[1]) @warn "Network has not been updated" end
+		 
+		 if nb % target_update_rate == 0 
+		     update_target_net!(tr.model) 
+		     @info "Batch $nb | Target network updated." 
+		 end
+		 
+		 if game.lost
+		     push!(tr.episode_rewards, episode_reward)
+		     episode_reward = 0.0f0
+		     game = SnakeGame()
+		     @info "Batch $nb | Game reset due to loss." 
+		 end
+		 
+		 if nb % 5 == 0 
+		     @printf "%d / %d -- loss %.3f \n" nb n_batches Flux.huber_loss(q_pred_selected, q_target)
+		 end
+		 		 
+		 track_loss!(tr, Flux.huber_loss(q_pred_selected, q_target))
+		 tr.epsilon = max(tr.epsilon - tr.decay, tr.epsilon_end)                            #linear epsilon decay
+		 nb += 1
+          end 
+                  
+          @info "############################## END TRAINING ###############################"
+          
+          if tr.save 
+              
+              plot_and_play(tr; save_name = trainer_name)
+              empty_buffer!(tr.buffer)                      #freeing up space
+              save_trainer(tr, trainer_name) 
+              @info "Trainer state saved to $trainer_name" 
+          end  
+end 
+
