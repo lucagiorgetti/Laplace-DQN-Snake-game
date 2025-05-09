@@ -37,16 +37,26 @@ function sample_food!(game::SnakeGame)
     empty_positions = findall(==(0),game.state)
     
     if isempty(empty_positions)
+        @info "no more empty positions"
         return  # No space left
     end
-
-    # Pick a random empty spot
-    food_pos = rand(game.food_rng, empty_positions)
+    
+    food_pos = 0
+    # Pick the first available food position
+    for f in game.food_list
+         if f in empty_positions
+             food_pos = f
+             idx = findfirst(==(f), game.food_list)
+             if idx !== nothing
+                 deleteat!(game.food_list, idx)
+             end
+             break
+         end
+    end
 
     # Update game state
     game.state[food_pos] = 2
     
-    @debug "Empty positions:" empty_positions = empty_positions
     @debug "Placing food at $food_pos"
 end 
 
@@ -99,7 +109,6 @@ function move_wrapper!(game::SnakeGame)
     if check_collision(game) 
         game.lost = true 
         game.reward = game.suicide_penalty                             #immediate reward = -1 if he looses
-        #@debug "Collision!" reward = game.reward
     end
 
     update_state!(game)
@@ -185,11 +194,12 @@ function epsilon_greedy(game::SnakeGame, model::DQNModel, epsilon::Float32)::Car
           state = reshape(game.state, game.state_size, game.state_size, 1, 1)
           
           if Float32(only(rand(model.model_rng,1))) < epsilon
-              act = rand(model.model_rng,av_actions)
+              act = rand(model.model_rng, av_actions)
           else
              exp_rewards = model.q_net(state)
              max_idx = argmax(exp_rewards)
              act = av_actions[max_idx]
+             @debug "best action selected!" expected_rewards = exp_rewards max_idx = max_idx
           end
 
           return act
@@ -214,12 +224,6 @@ function load_model(dir::String)::DQNModel
 end
 
 ###########################batch manipulation functions#################################################################################   
-"""
-function action_to_index(a::CartesianIndex{2})
-    return ACTIONS[a]
-end
-"""
-
 function stack_exp(batch::Vector{Experience})
     batch_size = length(batch)
     h, w = size(batch[1][1])  # board dimensions
@@ -230,6 +234,8 @@ function stack_exp(batch::Vector{Experience})
     actions_array     = Array{Int}(undef, batch_size)
     rewards_array     = Array{Float32}(undef, batch_size)
     done_array        = Array{Bool}(undef, batch_size)
+    av_acts_array     = Array{Vector{CartesianIndex{2}}}(undef, batch_size) #for debugging
+    a_array           = Array{CartesianIndex{2}}(undef, batch_size)            #for debugging
 
     for i in 1:batch_size
         s, a, r, s_next, done, av_acts = batch[i]
@@ -239,9 +245,11 @@ function stack_exp(batch::Vector{Experience})
         actions_array[i]  = findfirst(isequal(a), av_acts)
         rewards_array[i]  = Float32(r)
         done_array[i]     = done
+        av_acts_array[i]  = av_acts
+        a_array[i]        = a 
     end
 
-    return (states_array, actions_array, rewards_array, next_states_array, done_array)
+    return (states_array, actions_array, rewards_array, next_states_array, done_array, av_acts_array, a_array) #better to save also av_acts and a to debug further
 end
 
 ############################################################visualization functions##############################################
@@ -433,6 +441,7 @@ function fill_buffer!(tr::Trainer)
                action = epsilon_greedy(game, tr.model, tr.epsilon)
                exp = get_step(game, action)
                store!(tr.buffer, exp)
+               if game.lost game = SnakeGame() end               
          end 
          @info "##############################  BUFFER FULL ######################################"
 end 
@@ -475,7 +484,6 @@ function train!(tr::Trainer; trainer_name::String)
           @info "############################## START TRAINING ###############################"
           while nb <= n_batches
                  
-                 @debug "######################### BATCH $nb ###################################"
                  action = epsilon_greedy(game, tr.model, tr.epsilon)
                  experience = get_step(game, action)
                  
@@ -483,12 +491,11 @@ function train!(tr::Trainer; trainer_name::String)
                  store!(tr.buffer, experience)
                  
                  batch = sample(tr.buffer)
-                 states, actions, rewards, next_states, dones = stack_exp(batch)
+                 states, actions, rewards, next_states, dones, av_actions, a_array = stack_exp(batch)
                  
-                 @debug "Batch $nb | Sampled batch size: $(length(actions))"
-                 @debug "States shape: $(size(states)), Next states shape: $(size(next_states))"
-                 @debug "Actions:" actions = actions
-                 @debug "Rewards and dones:" rewards = rewards dones=dones
+                 #@debug "Batch $nb | Sampled batch size: $(length(actions))"
+                 #@debug "States shape: $(size(states)), Next states shape: $(size(next_states))"
+                 #@debug "Rewards and dones:" rewards = rewards dones=dones
                  
                  q_pred = tr.model.q_net(states)                                            # (n_actions, batch_size)
     		 q_pred_selected = [q_pred[a, i] for (i, a) in enumerate(actions)]
@@ -497,14 +504,25 @@ function train!(tr::Trainer; trainer_name::String)
     		 max_next_q = dropdims(maximum(q_next, dims = 1), dims = 1)                 # (batch_size,)
 		 q_target = @. rewards + game.discount * max_next_q * (1 - dones)
 		 
-		 @debug "Q_pred_selected:" q_pred_selected = q_pred_selected
-                 @debug "Max_next_q:" max_next_q =max_next_q
-                 @debug "Q_target:" q_target=q_target
+		 if nb % 10000 == 0
+		     @debug "######################### BATCH $nb ###################################"
+		     @debug "Actions_selected:" actions = actions
+		     @debug "Q_pred:" q_pred
+		     @debug "Shape Q-pred" q_pred_shape = size(q_pred)
+		     @debug "Shape Q-pred-selected" q_pred_selected_shape = size(q_pred_selected)
+		     @debug "Shape Q-target" q_target_shape = size(q_target)
+		     @debug "Q_pred_selected:" q_pred_selected = q_pred_selected
+		     @debug "Action_selected_in_cartesian_index"  a_array = a_array
+		     @debug "States" states = states
+		     @debug "Next_states" next_states = next_states
 		 
+                     #@debug "Max_next_q:" max_next_q =max_next_q
+                     #@debug "Q_target:" q_target=q_target
+		 end
 		 function loss_fun(z)
 		           q_pred_selected = [z[a, i] for (i, a) in enumerate(actions)]
 		           q_pred_selected = reshape(q_pred_selected, :)
-		           return Flux.huber_loss(q_pred_selected, q_target)
+		           return Flux.huber_loss(q_pred_selected, q_target; agg = mean)
 		 end
 		 
 		 #doing the update
@@ -513,8 +531,8 @@ function train!(tr::Trainer; trainer_name::String)
                        loss_fun(q_pred)
                  end
 
-                 Flux.update!(opt_state, tr.model.q_net, grads[1])
-                 if isnothing(grads[1]) @warn "Network has not been updated" end
+                 Flux.update!(opt_state, tr.model.q_net, only(grads))
+                 if isnothing(only(grads)) @warn "Network has not been updated" end
 		 
 		 if nb % target_update_rate == 0 
 		     update_target_net!(tr.model) 

@@ -15,7 +15,8 @@ mutable struct SnakeGame
     food_rng::AbstractRNG
     state_size::Int
     lost::Bool
-    discount::Float32  
+    discount::Float32
+    food_list::Vector{CartesianIndex{2}}  
 
     # Custom constructor
     function SnakeGame(state_size = 10, discount = 0.99, food_rng = Xoshiro(42))
@@ -44,7 +45,10 @@ mutable struct SnakeGame
         
         lost = false
         
-        new(state, snake, direction, prev_move, 0, 0.0f0, 2.0f0, -1.0f0, -0.1f0, food_rng, state_size, lost, discount)
+        food_list = [CartesianIndex(rand(food_rng, 2: state_size - 1), rand(food_rng, 2: state_size - 1)) for _ in 1:50]
+        
+        #(state, snake, direction, pre_move, score, reward, eating_reward, suicide_penalty, male_di_vivere, food_rng, state_size, lost, discount, food_list)
+        new(state, snake, direction, prev_move, 0, 0.0f0, 1.0f0, -1.0f0, -0.01f0, food_rng, state_size, lost, discount, food_list)
     end
 end
 
@@ -57,9 +61,9 @@ mutable struct ReplayBuffer
         batch_size::Int
         buffer_rng::AbstractRNG
         
-        function ReplayBuffer(capacity = 100000)
+        function ReplayBuffer(capacity = 10000)         #it was 10 000
                   buffer = Vector{Experience}(undef, 0)
-                  batch_size = 64
+                  batch_size = 64                      #it was 64
                   if batch_size > capacity throw("batch_size cannot be greater than the capacity of the buffer.") end
                   buffer_rng = Xoshiro(42)
                   new(capacity, 1, buffer, batch_size, buffer_rng)

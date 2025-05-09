@@ -6,7 +6,7 @@ using Flux.Optimise: RMSProp
 using Printf
 using BSON: @save, @load
 using Logging
-using Serialization, SHA
+using TerminalLoggers
 
 #type alias
 const Experience = Tuple{

@@ -6,10 +6,13 @@ include("imports.jl")
 ENV["JULIA_DEBUG"] = Main
 
 #setting up the logger
-name = "short_training3"
-logger = SimpleLogger(open(name * ".txt", "w+"))
+name = "long_training1"
+io = open(name * ".txt", "w+")
+logger = TerminalLogger(io;show_limited = false)
 global_logger(logger)
 
-tr = Trainer(n_batches = 1000)
+tr = Trainer(n_batches = 100000)
 train!(tr; trainer_name = name)
 
+flush(io)
+close(io)
