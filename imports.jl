@@ -7,6 +7,9 @@ using Printf
 using BSON: @save, @load
 using Logging
 using TerminalLoggers
+using Optimisers
+using Distributions
+using LinearAlgebra
 
 #type alias
 const Experience = Tuple{

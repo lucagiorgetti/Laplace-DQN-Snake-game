@@ -187,7 +187,7 @@ end
 
 ##################################################model methods################################################################
 
-function epsilon_greedy(game::SnakeGame, model::DQNModel, epsilon::Float32)::CartesianIndex{2}
+function epsilon_greedy(game::SnakeGame, model::DQNModel, epsilon::Float32; temp_model::Union{Chain,Nothing}=nothing)::CartesianIndex{2}
 
           av_actions = available_actions(game)
           
@@ -196,7 +196,8 @@ function epsilon_greedy(game::SnakeGame, model::DQNModel, epsilon::Float32)::Car
           if Float32(only(rand(model.model_rng,1))) < epsilon
               act = rand(model.model_rng, av_actions)
           else
-             exp_rewards = model.q_net(state)
+          
+             exp_rewards = isnothing(temp_model) ? model.q_net(state) : temp_model(state)
              max_idx = argmax(exp_rewards)
              act = av_actions[max_idx]
              @debug "best action selected!" expected_rewards = exp_rewards max_idx = max_idx
@@ -234,7 +235,7 @@ function stack_exp(batch::Vector{Experience})
     actions_array     = Array{Int}(undef, batch_size)
     rewards_array     = Array{Float32}(undef, batch_size)
     done_array        = Array{Bool}(undef, batch_size)
-    av_acts_array     = Array{Vector{CartesianIndex{2}}}(undef, batch_size) #for debugging
+    av_acts_array     = Array{Vector{CartesianIndex{2}}}(undef, batch_size)    #for debugging
     a_array           = Array{CartesianIndex{2}}(undef, batch_size)            #for debugging
 
     for i in 1:batch_size
@@ -504,7 +505,7 @@ function train!(tr::Trainer; trainer_name::String)
     		 max_next_q = dropdims(maximum(q_next, dims = 1), dims = 1)                 # (batch_size,)
 		 q_target = @. rewards + game.discount * max_next_q * (1 - dones)
 		 
-		 if nb % 10000 == 0
+		 if nb % 100000 == 0                        
 		     @debug "######################### BATCH $nb ###################################"
 		     @debug "Actions_selected:" actions = actions
 		     @debug "Q_pred:" q_pred
@@ -566,3 +567,411 @@ function train!(tr::Trainer; trainer_name::String)
           end  
 end 
 
+
+###########################################LaplaceTrainer methods#####################################################
+######################################################################################################################
+#Here is how LA will work.
+#1.Detect plateau fitting a line over 500 samples
+#2.At this point iniziatizing the first and the second moments
+#3.Start updating them and adding column to D
+#4.In the meanwhile q_net is of course training and filling the buffer.
+#5.After 100 iterations of the loop D is fool and I am ready to sample a new model
+#6.Now, I am training always q_net but gathering experience using Laplace
+#7.After 500 other batches I sample another model.
+#8.Continue till average reward is increasing again and then restart using E-greedy.   
+######################################################################################################################
+function track_loss!(tr::LaplaceTrainer, item)
+          push!(tr.losses, item)
+end
+
+function save_trainer(tr::LaplaceTrainer, name::String)
+          path = "./laplace_trainers/"
+          if !isdir(path) mkpath(path) end
+          @save path * name * ".bson" tr
+end
+
+function load_la_trainer(dir::String)::LaplaceTrainer
+          tr = nothing
+          @load dir tr
+          return tr
+end
+
+#check if there is a plateau
+function check_plateau(tr::LaplaceTrainer; window::Int= 500, batch_number = 1)::Bool
+         #skip the first plateau (10 000 samples)
+         
+         if batch_number < 10000
+             return false 
+         end 
+         
+         #fitting a line and finding the slope.
+         y = tr.episode_rewards[end - window : end] 
+         N = length(y)
+         x = collect(1:N)
+         X = hcat(ones(N), x)
+         coeffs = X \ y                  #least mean square
+         slope = coeffs[2]
+         
+         @info "slope is $slope"
+         return slope < 0.1              #slope almost flat I apply Laplace
+end
+
+function check_plateau(tr::Trainer; window::Int=500)::Bool
+          
+          #Here I do not skip anything because I have already trained the model and reached a plateau
+          y = tr.episode_rewards[end - window : end] 
+          N = length(y)
+          x = collect(1:N)
+          X = hcat(ones(N), x)
+          coeffs = X \ y                  #least mean square
+          slope = coeffs[2]
+          
+          println("slope is",slope)
+          return slope < 0.1              #slope almost flat I apply Laplace
+end
+
+Base.length(tr::LaplaceTrainer) = size(tr.deviation_matrix, 2)    #returns the number of columns of the deviation matrix
+
+function add_to_deviation_mat!(tr::LaplaceTrainer; dev_col::Vector{Float32})
+          if length(tr) < tr.capacity
+              tr.deviation_matrix = hcat(tr.deviation_matrix, dev_col)
+          else
+             tr.deviation_matrix[:, tr.position] = dev_col
+             tr.position += 1 
+          end
+          if tr.position > tr.capacity
+              tr.position = 1
+          end          
+end
+
+function compute_Gamma_diag(theta_SWA::Array{Float32}, theta_2_SWA::Array{Float32})
+         diag_elements = theta_2_SWA - (theta_SWA).^2
+         if minimum(diag_elements) < 0
+            @warn "Gamma_diag has negative element, whose value is $(minimum(diag_elements))"
+            diag_elements = abs.(diag_elements)
+         end
+         return Diagonal(diag_elements)
+end
+
+function sample_model(theta_SWA::Array{Float32}, theta_2_SWA::Array{Float32}, D::Matrix{Float32}, restructure)
+          
+          Gamma_diag = compute_Gamma_diag(theta_SWA, theta_2_SWA)
+          d = length(theta_SWA)                                               #total size of the model
+          K = size(D)[2] == 100 ? 100 : @error "Size of D is not 100, but $size(D)[2]"  
+          nd = MvNormal(fill(.0f0,d), I)   
+          nK = MvNormal(fill(.0f0,K), I)
+          
+          z1 = rand(nd)
+          z2 = rand(nK) 
+          
+          w = theta_SWA + 1/sqrt(2) * sqrt.(Gamma_diag) * z1 + 1/sqrt(2*(K - 1)) * D * z2
+          return restructure(w)    
+end 
+
+function train!(tr::LaplaceTrainer; trainer_name::String)
+          
+          #defining variables
+          if tr.save log_hyperparameters(tr) end
+      
+          n_batches = tr.n_batches
+          game = tr.game
+          target_update_rate = tr.target_update_rate
+          param_count = length(Flux.destructure(tr.model.q_net)[2])
+          
+          fill_buffer!(tr.buffer, tr.model)
+          opt_state = Flux.setup(tr.model.opt, tr.model.q_net)
+          episode_reward = 0.0f0
+          treshold = tr.capacity                        #treshold, basically the number of columns of the deviation_matrix
+          laplace_counter = 0
+          
+           #initializing variables
+          theta_SWA, re = Flux.destructure(tr.model.q_net)
+          theta_2_SWA = (theta_SWA).^2
+          temp_model = nothing
+          
+          nb = 0
+          
+          @info "############################## START TRAINING ###############################"
+          while nb <= n_batches
+                 
+                 #deciding whether I am in Laplace regime or not
+                 tr.laplace = check_plateau(tr; window = 500, batch_number = nb)
+                 
+                 #if Laplace regime is starting initialize first and second moments of the weights
+                 if tr.laplace&&laplace_counter == 0
+                     @info "starting LA"                    
+                     theta_SWA, re = Flux.destructure(tr.model.q_net)
+                     theta_2_SWA = (theta_SWA).^2
+                 end  
+                 
+                 #If Laplace regime and D matrix is already full I can start sample actions from posterio, otherwise epsilon-greedy
+                 if tr.laplace&&laplace_counter > treshold
+                     
+                     if (laplace_counter - treshold) % 500 == 0 
+                         @info "sampling a model for LA"
+                         temp_model = sample_model(theta_SWA, theta_2_SWA, tr.deviation_matrix, re)  
+                     end   
+                                        
+                     action = epsilon_greedy(game, temp_model, 0.0f0)          
+                 else
+                     
+                     #If there has been a Laplace regime but now is finished I reset Laplace variables
+                     if tr.laplace&&laplace_counter > 0
+                         
+                         @info "aborting LA"
+                         #reset values
+                         laplace_counter = 0                     
+                         tr.deviation_matrix = deepcopy(Matrix{Float32}(undef, param_count, 0))
+                     end 
+                       
+                     action = epsilon_greedy(game, tr.model, tr.epsilon)
+                 end
+                 
+                 experience = get_step(game, action)
+                 
+                 episode_reward += experience[3]
+                 store!(tr.buffer, experience)
+                 
+                 batch = sample(tr.buffer)
+                 states, actions, rewards, next_states, dones, av_actions, a_array = stack_exp(batch)
+                 
+                 q_pred = tr.model.q_net(states)                                            # (n_actions, batch_size)
+    		 q_pred_selected = [q_pred[a, i] for (i, a) in enumerate(actions)]
+    		 q_pred_selected = reshape(q_pred_selected, :)                              # (batch_size,)
+    		 q_next = tr.model.t_net(next_states)
+    		 max_next_q = dropdims(maximum(q_next, dims = 1), dims = 1)                 # (batch_size,)
+		 q_target = @. rewards + game.discount * max_next_q * (1 - dones)
+		 
+		 if nb % 10000000 == 0          #this works
+		     @debug "######################### BATCH $nb ###################################"
+		     @debug "Actions_selected:" actions = actions
+		     @debug "Q_pred:" q_pred
+		     @debug "Shape Q-pred" q_pred_shape = size(q_pred)
+		     @debug "Shape Q-pred-selected" q_pred_selected_shape = size(q_pred_selected)
+		     @debug "Shape Q-target" q_target_shape = size(q_target)
+		     @debug "Q_pred_selected:" q_pred_selected = q_pred_selected
+		     @debug "Action_selected_in_cartesian_index"  a_array = a_array
+		     @debug "States" states = states
+		     @debug "Next_states" next_states = next_states
+		 
+		 end
+		 function loss_fun(z)
+		           q_pred_selected = [z[a, i] for (i, a) in enumerate(actions)]
+		           q_pred_selected = reshape(q_pred_selected, :)
+		           return Flux.huber_loss(q_pred_selected, q_target; agg = mean)
+		 end
+		 
+		 #doing the update
+		 grads = Flux.gradient(tr.model.q_net) do m
+		       q_pred = m(states)
+                       loss_fun(q_pred)
+                 end
+
+                 Flux.update!(opt_state, tr.model.q_net, only(grads))
+                 if isnothing(only(grads)) @warn "Network has not been updated" end
+                 
+                 #if Laplace Regime update momenta and add column to D
+                 if tr.laplace
+                     theta, _ = Flux.destructure(tr.model.q_net)
+                     theta_SWA = @.(laplace_counter * theta_SWA + theta)/(laplace_counter + 1) 
+                     theta_2_SWA = @.(laplace_counter * theta_2_SWA + theta^2)/(laplace_counter + 1) 
+                     dD = theta - theta_SWA
+                     add_to_deviation_mat!(tr; dev_col=dD)             
+                 end
+		 
+		 if nb % target_update_rate == 0 
+		     update_target_net!(tr.model) 
+		     @info "Batch $nb | Target network updated." 
+		 end
+		 
+		 if game.lost
+		     push!(tr.episode_rewards, episode_reward)
+		     episode_reward = 0.0f0
+		     game = SnakeGame()
+		     @info "Batch $nb | Game reset due to loss." 
+		 end
+		 
+		 if nb % 5 == 0 
+		     @printf "%d / %d -- loss %.3f \n" nb n_batches Flux.huber_loss(q_pred_selected, q_target)
+		 end
+		 		 
+		 track_loss!(tr, Flux.huber_loss(q_pred_selected, q_target))
+		 
+		 #If I am in Laplace regime update counter, if I am not decay epsilon
+		 if tr.laplace
+		    laplace_counter += 1 	
+		 else
+		      tr.epsilon = max(tr.epsilon - tr.decay, tr.epsilon_end)                            #linear epsilon decay
+		 end
+		
+		 nb += 1
+          end 
+                  
+          @info "############################## END TRAINING ###############################"
+          
+          if tr.save 
+              
+              plot_and_play(tr; save_name = trainer_name)
+              empty_buffer!(tr.buffer)                      #freeing up space
+              save_trainer(tr, trainer_name) 
+              @info "Trainer state saved to $trainer_name" 
+          end  
+end
+ 
+#does not work
+#Resume training function, accepts a Trainer and trains it has a LaplaceTrainer.
+function resume_training!(;n_batches::Int=100000, trainer_path::String, la_trainer_name::String) #trainer_path for loading, la_trainer_name for saving
+          
+          tr = load_trainer(trainer_path)
+          #defining variables
+          if tr.save log_hyperparameters(tr) end
+      
+          #n_batches = tr.n_batches
+          game = tr.game
+          target_update_rate = tr.target_update_rate
+          param_count = length(Flux.destructure(tr.model.q_net)[2])
+          
+          fill_buffer!(tr.buffer, tr.model)
+          opt_state = Flux.setup(tr.model.opt, tr.model.q_net)
+          
+          #defining the deviation matrix and the Laplace boolean variable
+          deviation_matrix = Matrix{Float32}(undef, param_count, 0)
+          capacity = 1000
+          position = 1
+          laplace = false
+          
+          #initializing variables
+          theta_SWA, re = Flux.destructure(tr.model.q_net)
+          theta_2_SWA = (theta_SWA).^2
+          temp_model = nothing
+          
+          episode_reward = 0.0f0
+          treshold = capacity                        #treshold, basically the number of columns of the deviation_matrix
+          laplace_counter = 0
+          
+          nb = 0
+          
+          @info "############################## START TRAINING ###############################"
+          while nb <= n_batches
+                 
+                 #deciding whether I am in Laplace regime or not
+                 laplace = check_plateau(tr; window = 500)
+                 
+                 #if Laplace regime is starting initialize first and second moments of the weights
+                 if laplace&&laplace_counter == 0
+                     @info "starting LA"                    
+                     theta_SWA, re = Flux.destructure(tr.model.q_net)
+                     theta_2_SWA = (theta_SWA).^2
+                 end  
+                 
+                 #If Laplace regime and D matrix is already full I can start sample actions from posterior, otherwise epsilon-greedy
+                 if laplace&&laplace_counter >= treshold
+                     
+                     if (laplace_counter - treshold) % 500 == 0 
+                         @info "sampling a model for LA" last_columns_deviation_matrix=deviation_matrix[:,end-10:end]
+                         temp_model = sample_model(theta_SWA, theta_2_SWA, deviation_matrix, re)  
+                     end   
+                                        
+                     action = epsilon_greedy(game, tr.model, 0.0f0; temp_model = temp_model)          
+                 else
+                     
+                     if !laplace&&laplace_counter > 0
+                         
+                         @info "aborting LA"
+                         #reset values
+                         laplace_counter = 0                     
+                         deviation_matrix = deepcopy(Matrix{Float32}(undef, param_count, 0))
+                     end 
+                       
+                     action = epsilon_greedy(game, tr.model, tr.epsilon)
+                 end
+                 
+                 experience = get_step(game, action)
+                 
+                 episode_reward += experience[3]
+                 store!(tr.buffer, experience)
+                 
+                 batch = sample(tr.buffer)
+                 states, actions, rewards, next_states, dones, av_actions, a_array = stack_exp(batch)
+                 
+                 q_pred = tr.model.q_net(states)                                            # (n_actions, batch_size)
+    		 q_pred_selected = [q_pred[a, i] for (i, a) in enumerate(actions)]
+    		 q_pred_selected = reshape(q_pred_selected, :)                              # (batch_size,)
+    		 q_next = tr.model.t_net(next_states)
+    		 max_next_q = dropdims(maximum(q_next, dims = 1), dims = 1)                 # (batch_size,)
+		 q_target = @. rewards + game.discount * max_next_q * (1 - dones)
+		 
+		 function loss_fun(z)
+		           q_pred_selected = [z[a, i] for (i, a) in enumerate(actions)]
+		           q_pred_selected = reshape(q_pred_selected, :)
+		           return Flux.huber_loss(q_pred_selected, q_target; agg = mean)
+		 end
+		 
+		 #doing the update
+		 grads = Flux.gradient(tr.model.q_net) do m
+		       q_pred = m(states)
+                       loss_fun(q_pred)
+                 end
+
+                 Flux.update!(opt_state, tr.model.q_net, only(grads))
+                 if isnothing(only(grads)) @warn "Network has not been updated" end
+                 
+                 #if Laplace Regime update momenta and add column to D
+                 if laplace
+                     theta, _ = Flux.destructure(tr.model.q_net)
+                     theta_SWA = @.(laplace_counter * theta_SWA + theta)/(laplace_counter + 1) 
+                     theta_2_SWA = @.(laplace_counter * theta_2_SWA + theta^2)/(laplace_counter + 1) 
+                     dD = theta - theta_SWA
+                     
+                     if size(deviation_matrix)[2] < capacity
+                         deviation_matrix = hcat(deviation_matrix, dD)
+                     else
+                         deviation_matrix[:, position] = dD
+                         position += 1 
+                    end
+                    
+                    if position > capacity
+                       position = 1
+                    end  
+                                          
+                 end
+		 
+		 if nb % target_update_rate == 0 
+		     update_target_net!(tr.model) 
+		     @info "Batch $nb | Target network updated." 
+		 end
+		 
+		 if game.lost
+		     push!(tr.episode_rewards, episode_reward)
+		     episode_reward = 0.0f0
+		     game = SnakeGame()
+		     @info "Batch $nb | Game reset due to loss." 
+		 end
+		 
+		 if nb % 5 == 0 
+		     @printf "%d / %d -- loss %.3f \n" nb n_batches Flux.huber_loss(q_pred_selected, q_target)
+		 end
+		 		 
+		 track_loss!(tr, Flux.huber_loss(q_pred_selected, q_target))
+		 
+		 #If I am in Laplace regime update counter, if I am not decay epsilon
+		 if laplace
+		    laplace_counter += 1 	
+		 else
+		      tr.epsilon = max(tr.epsilon - tr.decay, tr.epsilon_end)                            #linear epsilon decay
+		 end
+		
+		 nb += 1
+          end 
+                  
+          @info "############################## END TRAINING ###############################"
+          
+          if tr.save 
+              
+              plot_and_play(tr; save_name = la_trainer_name)
+              empty_buffer!(tr.buffer)                      #freeing up space
+              save_trainer(tr, la_trainer_name) 
+              @info "Trainer state saved to $la_trainer_name" 
+          end
+
+end

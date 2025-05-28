@@ -82,14 +82,14 @@ mutable struct DQNModel
         board_size = game.state_size
 
         q_net = Chain(
-            Conv((3, 3), 1 => 16, relu; pad=(1,1)), 
-            Conv((3, 3), 16 => 32, relu; pad=(1,1)),
-            Conv((6, 6), 32 => 64, relu),
+            Conv((3, 3), 1 => 16, relu; pad=(1,1)),                         #160 params
+            Conv((3, 3), 16 => 32, relu; pad=(1,1)),                        #4_640 params
+            Conv((6, 6), 32 => 64, relu),                                   #73_792 params
             Flux.flatten,
-            Dense(((board_size - 5) * (board_size - 5) * 64), 64, relu),
-            Dense(64, 3)                 #output n_available_actions == 3
+            Dense(((board_size - 5) * (board_size - 5) * 64), 64, relu),    #102_464 params
+            Dense(64, 3)                 #output n_available_actions == 3   #195 params
         )
-
+                                                                            #tot 181_251 params
         t_net = deepcopy(q_net)
         opt = RMSProp(0.0005)   
 
@@ -125,6 +125,42 @@ mutable struct Trainer
     end
 end
 
-              
+######################################### Laplace Trainer#######################################  
+            
+mutable struct LaplaceTrainer
+    game::SnakeGame
+    model::DQNModel
+    buffer::ReplayBuffer
+    n_batches::Int
+    target_update_rate::Int
+    epsilon::Float32
+    epsilon_end::Float32
+    decay::Float32
+    save::Bool
+    losses::Vector{Float32}
+    episode_rewards::Vector{Float32}
+    
+    #quantities to compute the sampling Hessian
 
+    deviation_matrix::Matrix{Float32}
+    position::Int
+    capacity::Int
+    laplace::Bool
+
+    function LaplaceTrainer(; n_batches::Int = 1000, target_update_rate::Int = 1000,
+                     epsilon::Float32 = 1.0f0, epsilon_end::Float32 = 0.05f0, decay::Float32= 0.00001f0, save::Bool = true,
+                     game::SnakeGame = SnakeGame(),
+                     model::Union{DQNModel, Nothing} = nothing, capacity::Int=100)
+                     
+        model = isnothing(model) ? DQNModel(game) : model
+        buffer = ReplayBuffer()
+        losses = Float32[]
+        episode_rewards = Float32[]
+        
+        param_count = length(Flux.destructure(model.q_net)[2])
+        deviation_matrix = Matrix{Float32}(undef, param_counts, 0)
+        
+        new(game, model, buffer, n_batches, target_update_rate, epsilon, epsilon_end, decay, save, losses, episode_rewards, deviation_matrix, 1, capacity, false)
+    end
+end
 
