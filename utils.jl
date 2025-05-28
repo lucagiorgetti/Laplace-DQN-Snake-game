@@ -836,7 +836,7 @@ function resume_training!(;n_batches::Int=100000, trainer_path::String, la_train
           
           #defining the deviation matrix and the Laplace boolean variable
           deviation_matrix = Matrix{Float32}(undef, param_count, 0)
-          capacity = 1000
+          capacity = 100 #maybe 1000 is too much and the job gets killes
           position = 1
           laplace = false
           
