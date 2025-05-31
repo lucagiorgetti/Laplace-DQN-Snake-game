@@ -627,7 +627,7 @@ function check_plateau(tr::Trainer; window::Int=500)::Bool
           slope = coeffs[2]
           
           println("slope is",slope)
-          return slope < 0.1              #slope almost flat I apply Laplace
+          return -0.01 < slope < 0.01              #slope almost flat I apply Laplace
 end
 
 Base.length(tr::LaplaceTrainer) = size(tr.deviation_matrix, 2)    #returns the number of columns of the deviation matrix
@@ -666,6 +666,38 @@ function sample_model(theta_SWA::Array{Float32}, theta_2_SWA::Array{Float32}, D:
           
           w = theta_SWA + 1/sqrt(2) * sqrt.(Gamma_diag) * z1 + 1/sqrt(2*(K - 1)) * D * z2
           return restructure(w)    
+end 
+
+function sample_model_with_memory_mapping(theta_SWA::Array{Float32}, theta_2_SWA::Array{Float32}, restructure; D::AbstractMatrix)
+   
+           Gamma_diag = compute_Gamma_diag(theta_SWA, theta_2_SWA)
+          
+           d,K = size(D)
+        
+           nd = MvNormal(fill(.0f0,d), I)   
+           nK = MvNormal(fill(.0f0,K), I)
+          
+           z1 = rand(nd)
+           z2 = rand(nK)
+           
+           max_block = 100
+           Dz2 = zeros(Float32, d)
+           n_blocks = K ÷  max_block
+           
+           for i in 1:n_blocks
+                from = (i-1) * max_block + 1
+                to = i * max_block
+                z2_block = z2[from:to]
+                D_block = D[:,from:to]
+                Dz2 += D_block * z2_block
+           end  
+           
+           if K % max_block != 0
+              Dz2 += D[:, n_blocks*max_block + 1 : K] * z2[n_blocks*max_block + 1 : K]
+           end
+           
+           w = theta_SWA + 1/sqrt(2) * sqrt.(Gamma_diag) * z1 + 1/sqrt(2*(K - 1)) * Dz2
+           return restructure(w)
 end 
 
 function train!(tr::LaplaceTrainer; trainer_name::String)
@@ -835,10 +867,14 @@ function resume_training!(;n_batches::Int=100000, trainer_path::String, la_train
           opt_state = Flux.setup(tr.model.opt, tr.model.q_net)
           
           #defining the deviation matrix and the Laplace boolean variable
-          deviation_matrix = Matrix{Float32}(undef, param_count, 0)
-          capacity = 100 #maybe 1000 is too much and the job gets killes
+         
+          capacity = 1000 
           position = 1
           laplace = false
+          deviation_file_path = "./deviation_matrix.bin"
+          deviation_file = nothing
+          deviation_matrix = nothing
+
           
           #initializing variables
           theta_SWA, re = Flux.destructure(tr.model.q_net)
@@ -859,7 +895,18 @@ function resume_training!(;n_batches::Int=100000, trainer_path::String, la_train
                  
                  #if Laplace regime is starting initialize first and second moments of the weights
                  if laplace&&laplace_counter == 0
-                     @info "starting LA"                    
+                     @info "starting LA" 
+                      
+                     # Create or open the file
+                     isfile(deviation_file_path) || open(deviation_file_path, "w") do io
+                              # Reserve space: each Float32 takes 4 bytes
+                              write(io, zeros(Float32, param_count * capacity))
+                     end
+
+                     # Open for reading/writing + mmap
+                     deviation_file = open(deviation_file_path, "r+")
+                     deviation_matrix = mmap(deviation_file, Matrix{Float32}, (param_count, capacity))
+                                       
                      theta_SWA, re = Flux.destructure(tr.model.q_net)
                      theta_2_SWA = (theta_SWA).^2
                  end  
@@ -868,8 +915,8 @@ function resume_training!(;n_batches::Int=100000, trainer_path::String, la_train
                  if laplace&&laplace_counter >= treshold
                      
                      if (laplace_counter - treshold) % 500 == 0 
-                         @info "sampling a model for LA" last_columns_deviation_matrix=deviation_matrix[:,end-10:end]
-                         temp_model = sample_model(theta_SWA, theta_2_SWA, deviation_matrix, re)  
+                         @info "sampling a model for LA" 
+                         temp_model = sample_model_with_memory_mapping(theta_SWA, theta_2_SWA, re; D = deviation_matrix)  
                      end   
                                         
                      action = epsilon_greedy(game, tr.model, 0.0f0; temp_model = temp_model)          
@@ -879,8 +926,11 @@ function resume_training!(;n_batches::Int=100000, trainer_path::String, la_train
                          
                          @info "aborting LA"
                          #reset values
-                         laplace_counter = 0                     
-                         deviation_matrix = deepcopy(Matrix{Float32}(undef, param_count, 0))
+                         if deviation_file !== nothing && isopen(deviation_file)
+                            close(deviation_file)
+                         end
+                         rm("deviation_matrix.bin"; force = true)
+                         laplace_counter = 0                                              
                      end 
                        
                      action = epsilon_greedy(game, tr.model, tr.epsilon)
@@ -923,17 +973,10 @@ function resume_training!(;n_batches::Int=100000, trainer_path::String, la_train
                      theta_2_SWA = @.(laplace_counter * theta_2_SWA + theta^2)/(laplace_counter + 1) 
                      dD = theta - theta_SWA
                      
-                     if size(deviation_matrix)[2] < capacity
-                         deviation_matrix = hcat(deviation_matrix, dD)
-                     else
-                         deviation_matrix[:, position] = dD
-                         position += 1 
-                    end
                     
-                    if position > capacity
-                       position = 1
-                    end  
-                                          
+                     deviation_matrix[:, position] = dD
+                    
+                     position = position == capacity ? 1 : position + 1               
                  end
 		 
 		 if nb % target_update_rate == 0 
@@ -963,6 +1006,15 @@ function resume_training!(;n_batches::Int=100000, trainer_path::String, la_train
 		
 		 nb += 1
           end 
+          
+          if deviation_file !== nothing && isopen(deviation_file)
+             close(deviation_file)
+          end
+          
+          if isfile(deviation_file_path)
+             rm(deviation_file_path; force = true)
+          end
+
                   
           @info "############################## END TRAINING ###############################"
           

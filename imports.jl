@@ -10,6 +10,7 @@ using TerminalLoggers
 using Optimisers
 using Distributions
 using LinearAlgebra
+using Mmap
 
 #type alias
 const Experience = Tuple{
