@@ -616,7 +616,7 @@ function check_plateau(tr::LaplaceTrainer; window::Int= 500, batch_number = 1)::
          return slope < 0.1              #slope almost flat I apply Laplace
 end
 
-function check_plateau(tr::Trainer; window::Int=500)::Bool
+function check_plateau(tr::Trainer; window::Int=10000)::Bool
           
           #Here I do not skip anything because I have already trained the model and reached a plateau
           y = tr.episode_rewards[end - window : end] 
@@ -626,7 +626,7 @@ function check_plateau(tr::Trainer; window::Int=500)::Bool
           coeffs = X \ y                  #least mean square
           slope = coeffs[2]
           
-          println("slope is",slope)
+          println("slope is", slope)
           return -0.01 < slope < 0.01              #slope almost flat I apply Laplace
 end
 
@@ -850,7 +850,7 @@ function train!(tr::LaplaceTrainer; trainer_name::String)
           end  
 end
  
-#does not work
+#does not work, trying to use mse as loss, maybe is more regular
 #Resume training function, accepts a Trainer and trains it has a LaplaceTrainer.
 function resume_training!(;n_batches::Int=100000, trainer_path::String, la_trainer_name::String) #trainer_path for loading, la_trainer_name for saving
           
@@ -891,7 +891,7 @@ function resume_training!(;n_batches::Int=100000, trainer_path::String, la_train
           while nb <= n_batches
                  
                  #deciding whether I am in Laplace regime or not
-                 laplace = check_plateau(tr; window = 500)
+                 laplace = check_plateau(tr; window = 10000)
                  
                  #if Laplace regime is starting initialize first and second moments of the weights
                  if laplace&&laplace_counter == 0
@@ -916,7 +916,14 @@ function resume_training!(;n_batches::Int=100000, trainer_path::String, la_train
                      
                      if (laplace_counter - treshold) % 500 == 0 
                          @info "sampling a model for LA" 
-                         temp_model = sample_model_with_memory_mapping(theta_SWA, theta_2_SWA, re; D = deviation_matrix)  
+                         temp_model = sample_model_with_memory_mapping(theta_SWA, theta_2_SWA, re; D = deviation_matrix)
+                         
+                         #saving temp models for further analysis (in particular I need to inspect the buffer later)
+                         n = (laplace_counter - treshold) % 500
+                         path = "./temp_models/"
+          	         if !isdir(path) mkpath(path) end
+                         @save path * la_trainer_name * "temp_model_$n" * ".bson" temp_model
+                          
                      end   
                                         
                      action = epsilon_greedy(game, tr.model, 0.0f0; temp_model = temp_model)          
@@ -954,7 +961,7 @@ function resume_training!(;n_batches::Int=100000, trainer_path::String, la_train
 		 function loss_fun(z)
 		           q_pred_selected = [z[a, i] for (i, a) in enumerate(actions)]
 		           q_pred_selected = reshape(q_pred_selected, :)
-		           return Flux.huber_loss(q_pred_selected, q_target; agg = mean)
+		           return Flux.mse(q_pred_selected, q_target; agg = mean)
 		 end
 		 
 		 #doing the update
@@ -971,11 +978,9 @@ function resume_training!(;n_batches::Int=100000, trainer_path::String, la_train
                      theta, _ = Flux.destructure(tr.model.q_net)
                      theta_SWA = @.(laplace_counter * theta_SWA + theta)/(laplace_counter + 1) 
                      theta_2_SWA = @.(laplace_counter * theta_2_SWA + theta^2)/(laplace_counter + 1) 
-                     dD = theta - theta_SWA
-                     
+                     dD = theta - theta_SWA  
                     
-                     deviation_matrix[:, position] = dD
-                    
+                     deviation_matrix[:, position] = dD             
                      position = position == capacity ? 1 : position + 1               
                  end
 		 
@@ -992,10 +997,10 @@ function resume_training!(;n_batches::Int=100000, trainer_path::String, la_train
 		 end
 		 
 		 if nb % 5 == 0 
-		     @printf "%d / %d -- loss %.3f \n" nb n_batches Flux.huber_loss(q_pred_selected, q_target)
+		     @printf "%d / %d -- loss %.3f \n" nb n_batches Flux.mse(q_pred_selected, q_target)
 		 end
 		 		 
-		 track_loss!(tr, Flux.huber_loss(q_pred_selected, q_target))
+		 track_loss!(tr, Flux.mse(q_pred_selected, q_target))
 		 
 		 #If I am in Laplace regime update counter, if I am not decay epsilon
 		 if laplace

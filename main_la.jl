@@ -3,7 +3,7 @@
 include("imports.jl")
 
 #setting DEBUG LEVEL
-ENV["JULIA_DEBUG"] = Main
+#ENV["JULIA_DEBUG"] = Main
 
 #setting up the logger
 name = "very_long_la_training1"
