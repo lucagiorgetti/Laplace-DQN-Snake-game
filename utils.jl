@@ -170,7 +170,7 @@ end
 function fill_buffer!(rpb::ReplayBuffer, model::DQNModel; epsilon::Union{Float32,Missing} = missing)
          @info "############################## FILLING THE BUFFER ###############################"
          game = SnakeGame()
-         eps = ismissing(epsilon) ? 1.0f : epsilon
+         eps = ismissing(epsilon) ? 1.0f0 : epsilon
          while !isfull(rpb)
                # epsilon-greedy policy
                action = epsilon_greedy(game, model, eps)
@@ -717,7 +717,7 @@ function sample_model_with_memory_mapping(theta_SWA::Vector{Float64}, var_SWA::V
 end 
 
 #algorithm to compute efficiently average and variance
-function welford_update(count::Int, aggregate::Tuple{Vector{Float64}}, new_value)
+function welford_update(count::Int, aggregate::Tuple{Vector{Float64}, Vector{Float64}}, new_value::Vector{Float64})
           
           mean, m2 = aggregate
           count += 1
@@ -728,7 +728,7 @@ function welford_update(count::Int, aggregate::Tuple{Vector{Float64}}, new_value
           return count, mean, m2
 end
 
-function welford_finalize(count::Int, aggregate::Tuple{Vector{Float64}})
+function welford_finalize(count::Int, aggregate::Tuple{Vector{Float64}, Vector{Float64}})
           
           mean, m2 = aggregate
           if count < 2 
@@ -958,8 +958,8 @@ function resume_training!(;n_batches::Int=100000, trainer_path::String, la_train
                      
                      if (laplace_counter - treshold) % 500 == 0 
                          @info "sampling a model for LA" 
-                         theta_SWA, var_SWA = welford_finalize(laplace_counter, [theta_SWA, m2])
-                         temp_model = sample_model_with_memory_mapping(theta_SWA, theta_2_SWA, re; D = deviation_matrix)
+                         theta_SWA, var_SWA = welford_finalize(laplace_counter, (theta_SWA, m2))
+                         temp_model = sample_model_with_memory_mapping(theta_SWA, var_SWA, re; D = deviation_matrix)
                          
                          #saving temp models for further analysis (in particular I need to inspect the buffer later)
                          n = div((laplace_counter - treshold), 500)
