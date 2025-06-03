@@ -142,7 +142,7 @@ mutable struct LaplaceTrainer
     
     #quantities to compute the sampling Hessian
 
-    deviation_matrix::Matrix{Float32}
+    deviation_matrix::Matrix{Float64} #Laplace needs more precision
     position::Int
     capacity::Int
     laplace::Bool
@@ -158,7 +158,7 @@ mutable struct LaplaceTrainer
         episode_rewards = Float32[]
         
         param_count = length(Flux.destructure(model.q_net)[2])
-        deviation_matrix = Matrix{Float32}(undef, param_counts, 0)
+        deviation_matrix = Matrix{Float64}(undef, param_counts, 0)
         
         new(game, model, buffer, n_batches, target_update_rate, epsilon, epsilon_end, decay, save, losses, episode_rewards, deviation_matrix, 1, capacity, false)
     end

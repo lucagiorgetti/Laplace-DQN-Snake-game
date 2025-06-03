@@ -97,7 +97,7 @@ function grow_maybe!(game::SnakeGame)
     else
         remove_tail!(game)  # Normal move (no food)
         game.reward = game.male_di_vivere                              #small penalty for surviving without eating anything
-        #@debug "no food is eaten!" reward = game.reward
+        @debug "no food is eaten!" reward = game.reward
     end
 end
 
@@ -167,12 +167,13 @@ function isready(rpb::ReplayBuffer)
           return length(rpb) >= batch_size
 end
 
-function fill_buffer!(rpb::ReplayBuffer, model::DQNModel)
+function fill_buffer!(rpb::ReplayBuffer, model::DQNModel; epsilon::Union{Float32,Missing} = missing)
          @info "############################## FILLING THE BUFFER ###############################"
          game = SnakeGame()
+         eps = ismissing(epsilon) ? 1.0f : epsilon
          while !isfull(rpb)
                # epsilon-greedy policy
-               action = epsilon_greedy(game, model, 1.0f0)
+               action = epsilon_greedy(game, model, eps)
                exp = get_step(game, action)
                store!(rpb, exp)
                if game.lost game = SnakeGame() end 
@@ -200,7 +201,7 @@ function epsilon_greedy(game::SnakeGame, model::DQNModel, epsilon::Float32; temp
              exp_rewards = isnothing(temp_model) ? model.q_net(state) : temp_model(state)
              max_idx = argmax(exp_rewards)
              act = av_actions[max_idx]
-             @debug "best action selected!" expected_rewards = exp_rewards max_idx = max_idx
+             #@debug "best action selected!" expected_rewards = exp_rewards max_idx = max_idx
           end
 
           return act
@@ -218,10 +219,16 @@ function save_model(model::DQNModel, name::String)
           @save path * name * ".bson" model
 end
 
-function load_model(dir::String)::DQNModel
-    model = nothing
-    @load dir model
-    return model
+function load_model(dir::String; temp::Union{Bool,Missing}=missing)::Union{DQNModel,Chain}
+    if ismissing(temp)||temp == false
+       model = nothing
+       @load dir model
+       return model
+    else
+       temp_model = nothing 
+       @load dir temp_model
+       return temp_model
+    end
 end
 
 ###########################batch manipulation functions#################################################################################   
@@ -494,10 +501,6 @@ function train!(tr::Trainer; trainer_name::String)
                  batch = sample(tr.buffer)
                  states, actions, rewards, next_states, dones, av_actions, a_array = stack_exp(batch)
                  
-                 #@debug "Batch $nb | Sampled batch size: $(length(actions))"
-                 #@debug "States shape: $(size(states)), Next states shape: $(size(next_states))"
-                 #@debug "Rewards and dones:" rewards = rewards dones=dones
-                 
                  q_pred = tr.model.q_net(states)                                            # (n_actions, batch_size)
     		 q_pred_selected = [q_pred[a, i] for (i, a) in enumerate(actions)]
     		 q_pred_selected = reshape(q_pred_selected, :)                              # (batch_size,)
@@ -544,7 +547,7 @@ function train!(tr::Trainer; trainer_name::String)
 		     push!(tr.episode_rewards, episode_reward)
 		     episode_reward = 0.0f0
 		     game = SnakeGame()
-		     @info "Batch $nb | Game reset due to loss." 
+		     #@info "Batch $nb | Game reset due to loss." 
 		 end
 		 
 		 if nb % 5 == 0 
@@ -596,7 +599,7 @@ function load_la_trainer(dir::String)::LaplaceTrainer
           return tr
 end
 
-#check if there is a plateau
+#check if there is a plateau, TODO:modify followig the next function
 function check_plateau(tr::LaplaceTrainer; window::Int= 500, batch_number = 1)::Bool
          #skip the first plateau (10 000 samples)
          
@@ -616,15 +619,28 @@ function check_plateau(tr::LaplaceTrainer; window::Int= 500, batch_number = 1)::
          return slope < 0.1              #slope almost flat I apply Laplace
 end
 
-function check_plateau(tr::Trainer; window::Int=10000)::Bool
+function check_plateau(tr::Trainer; window::Int=2000, fig::Union{Missing, Bool}=false)::Bool
+
           
           #Here I do not skip anything because I have already trained the model and reached a plateau
+          len_rewards = length(tr.episode_rewards)
           y = tr.episode_rewards[end - window : end] 
+          
+          if minimum(y) < -10 return false end #maybe this solves
+
           N = length(y)
-          x = collect(1:N)
+          x = collect(len_rewards - window : len_rewards)
           X = hcat(ones(N), x)
           coeffs = X \ y                  #least mean square
           slope = coeffs[2]
+          
+          if fig
+              pl = plot(tr.episode_rewards, label = "Episode rewards", lw = 2, lc = :red)
+              plot!(pl, x, @.(coeffs[2]*x + coeffs[2]), lw = 2, lc = :navy)
+              xlabel!("episodes")
+              ylabel!("rewards")
+              display(pl)
+          end
           
           println("slope is", slope)
           return -0.01 < slope < 0.01              #slope almost flat I apply Laplace
@@ -632,7 +648,7 @@ end
 
 Base.length(tr::LaplaceTrainer) = size(tr.deviation_matrix, 2)    #returns the number of columns of the deviation matrix
 
-function add_to_deviation_mat!(tr::LaplaceTrainer; dev_col::Vector{Float32})
+function add_to_deviation_mat!(tr::LaplaceTrainer; dev_col::Vector{Float64})
           if length(tr) < tr.capacity
               tr.deviation_matrix = hcat(tr.deviation_matrix, dev_col)
           else
@@ -644,8 +660,8 @@ function add_to_deviation_mat!(tr::LaplaceTrainer; dev_col::Vector{Float32})
           end          
 end
 
-function compute_Gamma_diag(theta_SWA::Array{Float32}, theta_2_SWA::Array{Float32})
-         diag_elements = theta_2_SWA - (theta_SWA).^2
+function compute_Gamma_diag(var_SWA::Vector{Float64})
+         diag_elements = var_SWA
          if minimum(diag_elements) < 0
             @warn "Gamma_diag has negative element, whose value is $(minimum(diag_elements))"
             diag_elements = abs.(diag_elements)
@@ -653,13 +669,13 @@ function compute_Gamma_diag(theta_SWA::Array{Float32}, theta_2_SWA::Array{Float3
          return Diagonal(diag_elements)
 end
 
-function sample_model(theta_SWA::Array{Float32}, theta_2_SWA::Array{Float32}, D::Matrix{Float32}, restructure)
+function sample_model(theta_SWA::Array{Float64}, theta_2_SWA::Array{Float64}, D::Matrix{Float64}, restructure)
           
           Gamma_diag = compute_Gamma_diag(theta_SWA, theta_2_SWA)
           d = length(theta_SWA)                                               #total size of the model
           K = size(D)[2] == 100 ? 100 : @error "Size of D is not 100, but $size(D)[2]"  
-          nd = MvNormal(fill(.0f0,d), I)   
-          nK = MvNormal(fill(.0f0,K), I)
+          nd = MvNormal(fill(.0,d), I)   
+          nK = MvNormal(fill(.0,K), I)
           
           z1 = rand(nd)
           z2 = rand(nK) 
@@ -668,20 +684,20 @@ function sample_model(theta_SWA::Array{Float32}, theta_2_SWA::Array{Float32}, D:
           return restructure(w)    
 end 
 
-function sample_model_with_memory_mapping(theta_SWA::Array{Float32}, theta_2_SWA::Array{Float32}, restructure; D::AbstractMatrix)
+function sample_model_with_memory_mapping(theta_SWA::Vector{Float64}, var_SWA::Vector{Float64}, restructure; D::AbstractMatrix)
    
-           Gamma_diag = compute_Gamma_diag(theta_SWA, theta_2_SWA)
+           Gamma_diag = compute_Gamma_diag(var_SWA)
           
            d,K = size(D)
         
-           nd = MvNormal(fill(.0f0,d), I)   
-           nK = MvNormal(fill(.0f0,K), I)
+           nd = MvNormal(fill(.0,d), I)   
+           nK = MvNormal(fill(.0,K), I)
           
            z1 = rand(nd)
            z2 = rand(nK)
            
            max_block = 100
-           Dz2 = zeros(Float32, d)
+           Dz2 = zeros(Float64, d)
            n_blocks = K ÷  max_block
            
            for i in 1:n_blocks
@@ -700,6 +716,30 @@ function sample_model_with_memory_mapping(theta_SWA::Array{Float32}, theta_2_SWA
            return restructure(w)
 end 
 
+#algorithm to compute efficiently average and variance
+function welford_update(count::Int, aggregate::Tuple{Vector{Float64}}, new_value)
+          
+          mean, m2 = aggregate
+          count += 1
+          delta = @.(new_value - mean)
+          mean += delta / count
+          delta2 = @.(new_value - mean)
+          m2 += @.(delta * delta2)
+          return count, mean, m2
+end
+
+function welford_finalize(count::Int, aggregate::Tuple{Vector{Float64}})
+          
+          mean, m2 = aggregate
+          if count < 2 
+             throw("Count must be greater than or equal to 2")
+          else
+             variance = m2/(count - 1)
+          end
+          return mean, variance
+end
+
+#TODO:to be modified following resume_training! function
 function train!(tr::LaplaceTrainer; trainer_name::String)
           
           #defining variables
@@ -877,8 +917,9 @@ function resume_training!(;n_batches::Int=100000, trainer_path::String, la_train
 
           
           #initializing variables
-          theta_SWA, re = Flux.destructure(tr.model.q_net)
-          theta_2_SWA = (theta_SWA).^2
+          _, re = Flux.destructure(tr.model.q_net)  #here is important to use more precision
+          theta_SWA = zeros(param_count)            #initialization for welford's algorithm
+          m2 = zeros(param_count)
           temp_model = nothing
           
           episode_reward = 0.0f0
@@ -891,7 +932,7 @@ function resume_training!(;n_batches::Int=100000, trainer_path::String, la_train
           while nb <= n_batches
                  
                  #deciding whether I am in Laplace regime or not
-                 laplace = check_plateau(tr; window = 10000)
+                 laplace = check_plateau(tr; window = 2000)
                  
                  #if Laplace regime is starting initialize first and second moments of the weights
                  if laplace&&laplace_counter == 0
@@ -899,15 +940,16 @@ function resume_training!(;n_batches::Int=100000, trainer_path::String, la_train
                       
                      # Create or open the file
                      isfile(deviation_file_path) || open(deviation_file_path, "w") do io
-                              # Reserve space: each Float32 takes 4 bytes
-                              write(io, zeros(Float32, param_count * capacity))
+                              # Reserve space: each Float64 takes 8 bytes
+                              write(io, zeros(Float64, param_count * capacity))
                      end
 
                      # Open for reading/writing + mmap
                      deviation_file = open(deviation_file_path, "r+")
-                     deviation_matrix = mmap(deviation_file, Matrix{Float32}, (param_count, capacity))
+                     deviation_matrix = mmap(deviation_file, Matrix{Float64}, (param_count, capacity))
                                        
                      theta_SWA, re = Flux.destructure(tr.model.q_net)
+                     theta_SWA = Float64.(theta_SWA)
                      theta_2_SWA = (theta_SWA).^2
                  end  
                  
@@ -916,13 +958,14 @@ function resume_training!(;n_batches::Int=100000, trainer_path::String, la_train
                      
                      if (laplace_counter - treshold) % 500 == 0 
                          @info "sampling a model for LA" 
+                         theta_SWA, var_SWA = welford_finalize(laplace_counter, [theta_SWA, m2])
                          temp_model = sample_model_with_memory_mapping(theta_SWA, theta_2_SWA, re; D = deviation_matrix)
                          
                          #saving temp models for further analysis (in particular I need to inspect the buffer later)
-                         n = (laplace_counter - treshold) % 500
+                         n = div((laplace_counter - treshold), 500)
                          path = "./temp_models/"
           	         if !isdir(path) mkpath(path) end
-                         @save path * la_trainer_name * "temp_model_$n" * ".bson" temp_model
+                         @save path * la_trainer_name * "_temp_model_$n" * ".bson" temp_model
                           
                      end   
                                         
@@ -976,8 +1019,8 @@ function resume_training!(;n_batches::Int=100000, trainer_path::String, la_train
                  #if Laplace Regime update momenta and add column to D
                  if laplace
                      theta, _ = Flux.destructure(tr.model.q_net)
-                     theta_SWA = @.(laplace_counter * theta_SWA + theta)/(laplace_counter + 1) 
-                     theta_2_SWA = @.(laplace_counter * theta_2_SWA + theta^2)/(laplace_counter + 1) 
+                     theta = Float64.(theta)
+                     laplace_counter, theta_SWA, m2  = welford_update(laplace_counter, (theta_SWA, m2), theta)
                      dD = theta - theta_SWA  
                     
                      deviation_matrix[:, position] = dD             
@@ -1002,7 +1045,7 @@ function resume_training!(;n_batches::Int=100000, trainer_path::String, la_train
 		 		 
 		 track_loss!(tr, Flux.mse(q_pred_selected, q_target))
 		 
-		 #If I am in Laplace regime update counter, if I am not decay epsilon
+		 #If I am in Laplace regime update counter, if I am not decay epsilon TODO:update the count in welford_update
 		 if laplace
 		    laplace_counter += 1 	
 		 else
@@ -1032,3 +1075,15 @@ function resume_training!(;n_batches::Int=100000, trainer_path::String, la_train
           end
 
 end
+
+#function to fill the buffer using a temp_model. Useful for debugging
+function temp_model_fills_buffer(temp_name::String)
+         path = "./temp_models/"
+         full_path = path * temp_name
+         gm = SnakeGame()
+         md = DQNModel(gm)
+         md.q_net = load_model(full_path; temp=true)
+         bf = ReplayBuffer(10000)
+         fill_buffer!(bf, md; epsilon=0.0f0)
+         return bf
+end 
