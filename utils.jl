@@ -170,7 +170,7 @@ end
 function fill_buffer!(rpb::ReplayBuffer, model::DQNModel; epsilon::Union{Float32,Missing} = missing)
          @info "############################## FILLING THE BUFFER ###############################"
          game = SnakeGame()
-         eps = ismissing(epsilon) ? 1.0f0 : epsilon
+         eps = ismissing(epsilon) ? 0.0f0 : epsilon
          while !isfull(rpb)
                # epsilon-greedy policy
                action = epsilon_greedy(game, model, eps)
@@ -188,14 +188,14 @@ end
 
 ##################################################model methods################################################################
 
-function epsilon_greedy(game::SnakeGame, model::DQNModel, epsilon::Float32; temp_model::Union{Chain,Nothing}=nothing)::CartesianIndex{2}
+function epsilon_greedy(game::SnakeGame, model::Union{DQNModel, Missing}, epsilon::Float32; temp_model::Union{Chain,Nothing}=nothing)::CartesianIndex{2}
 
           av_actions = available_actions(game)
           
           state = reshape(game.state, game.state_size, game.state_size, 1, 1)
           
-          if Float32(only(rand(model.model_rng,1))) < epsilon
-              act = rand(model.model_rng, av_actions)
+          if Float32(only(rand(1))) < epsilon          #deleted model.model_rng
+              act = rand(av_actions)  #deleted model.model_rng
           else
           
              exp_rewards = isnothing(temp_model) ? model.q_net(state) : temp_model(state)
@@ -326,17 +326,19 @@ function plot_loss(tr::Trainer; size::Int = 100, save_name::String)
 
 end
 
-function play_game(tr::Trainer, gif_name::String)
+function play_game(tr::Union{Trainer, Missing}, gif_name::String; temp_model::Union{Chain, Nothing} = nothing)
+          
+          #if trainer is false it means that a temp_model has been passed
           plt = nothing
           game = SnakeGame()
-          model = tr.model
+          model = ismissing(tr) ? missing : tr.model
           plt = plot_or_update!(game)
                     
           break_next = false
          
           anim = @animate for i in 1:400                                    #I want to exit the loop when game.lost
              if i > 1 && break_next == false
-                 game.direction = epsilon_greedy(game, model, 0.0f0)        #always the best action
+                 game.direction = isnothing(temp_model) ? epsilon_greedy(game, model, 0.0f0) : epsilon_greedy(game, missing, 0.0f0; temp_model = temp_model)         #always the best action
                  move_wrapper!(game)
              end
              
@@ -950,7 +952,6 @@ function resume_training!(;n_batches::Int=100000, trainer_path::String, la_train
                                        
                      theta_SWA, re = Flux.destructure(tr.model.q_net)
                      theta_SWA = Float64.(theta_SWA)
-                     theta_2_SWA = (theta_SWA).^2
                  end  
                  
                  #If Laplace regime and D matrix is already full I can start sample actions from posterior, otherwise epsilon-greedy
@@ -1087,3 +1088,6 @@ function temp_model_fills_buffer(temp_name::String)
          fill_buffer!(bf, md; epsilon=0.0f0)
          return bf
 end 
+
+#I need to produce a plot showing the norm of (temp_model_i, very_long_training) to see if it increases a lot as function of i.
+#In this case, maybe I have to freeze the learning while doing laplace
