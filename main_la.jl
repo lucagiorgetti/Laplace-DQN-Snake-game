@@ -13,6 +13,7 @@ io = open(name * ".txt", "w+")
 logger = TerminalLogger(io;show_limited = false)
 global_logger(logger)
 
-resume_training!(n_batches=100000, trainer_path=trainer_path, la_trainer_name=name)
+#resume_training!(n_batches=100000, trainer_path=trainer_path, la_trainer_name=name)
+resume_training_mod!(n_batches=100000, trainer_path=trainer_path, la_trainer_name=name)
 flush(io)
 close(io)
