@@ -320,7 +320,7 @@ end
  
 #does not work, trying to use mse as loss, maybe is more regular
 #Resume training function, accepts a Trainer and trains it has a LaplaceTrainer.
-function resume_training!(;n_batches::Int=100000, trainer_path::String, la_trainer_name::String) #trainer_path for loading, la_trainer_name for saving
+function resume_training!(tr::LaplaceTrainer;n_batches::Int=100000, trainer_path::String, la_trainer_name::String) #trainer_path for loading, la_trainer_name for saving
           
           tr = load_trainer(trainer_path)
           #defining variables
@@ -530,8 +530,8 @@ function pre_la(tr::Trainer)
          #I want roughly 10 games per model, let's say 1000 samples per model
          n_samples_per_model = 1000
          
-         n_models = div(size_too_fill, n_samples_per_model)
-         return n_models, n_samples_per_model)
+         n_models = div(size_to_fill, n_samples_per_model)
+         return Int(n_models), n_samples_per_model
 end
 
 #function to fill the buffer with Laplace samples
@@ -549,7 +549,7 @@ function add_samples_to_buffer!(rb::ReplayBuffer, md::Chain;n_samples::Int, epsi
          end 
 end
 
-function laplace_sampling!(tr::Trainer; mean::Vector{Float64}, m2::Vector{Float64}, D::AbstractMatrix, n_models::Int, n_samples::Int, epsilon::Float32=0.1f0, count::Int, re)
+function laplace_sampling!(tr::Trainer; mean::Vector{Float64}, m2::Vector{Float64}, D::AbstractMatrix, n_models::Int, n_samples::Int, epsilon::Float32=0.1f0, counter::Int, re)
           
            @info "Starting samplin LA models" 
            path = "./temp_models/"
@@ -569,8 +569,8 @@ end
 
 function reset_laplace_vars(file::IOStream, file_name::String)
 
-         if file !== nothing && isopen(deviation_file)
-             close(deviation_file)
+         if file !== nothing && isopen(file)
+             close(file)
          end
          if isfile(file_name)
              rm(file_name; force = true)
@@ -581,9 +581,9 @@ end
 
 function resume_training_mod!(;n_batches::Int=100000, trainer_path::String, la_trainer_name::String) #trainer_path for loading, la_trainer_name for saving
           
+          tr = load_trainer(trainer_path)
           n_models, n_samples = pre_la(tr)
           
-          tr = load_trainer(trainer_path)
           #defining variables
           if tr.save log_hyperparameters(tr) end
       
@@ -642,18 +642,16 @@ function resume_training_mod!(;n_batches::Int=100000, trainer_path::String, la_t
                      theta_SWA = Float64.(theta_SWA)
                  end  
                  
-                 #If Laplace regime and D matrix is already full I can start sample actions from posterior, otherwise epsilon-greedy
+                 #If Laplace regime and D matrix is full, I add some Laplace samples to the buffer
                  if laplace&&laplace_counter >= treshold
                   
-                    laplace_sampling!(tr; mean=theta_SWA, m2=m2, D=deviation_matrix, n_models=n_models, n_samples=n_samples, epsilon=0.1f0, count=laplace_counter, re=re)
+                     laplace_sampling!(tr; mean=theta_SWA, m2=m2, D=deviation_matrix, n_models=n_models, n_samples=n_samples, epsilon=0.1f0, counter=laplace_counter, re=re)
                     
-                      laplace_counter,laplace = reset_laplace_vars(deviation_file, "deviation_matrix.bin")    
+                     laplace_counter,laplace = reset_laplace_vars(deviation_file, "deviation_matrix.bin")    
                         
-                 else
-                       
-                     action = epsilon_greedy(game, tr.model, tr.epsilon)
                  end
-                 
+                       
+                 action = epsilon_greedy(game, tr.model, tr.epsilon)
                  experience = get_step(game, action)
                  
                  episode_reward += experience[3]

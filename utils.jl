@@ -92,12 +92,12 @@ function grow_maybe!(game::SnakeGame)
     if game.state[new_head] == 2  
         game.score += 1
         game.reward = game.eating_reward                               #immediate reward = 1 for eating food
-        @info "food in ($(new_head[1]),$(new_head[2])) eaten!" reward = game.reward
+        @debug "food in ($(new_head[1]),$(new_head[2])) eaten!" reward = game.reward
         sample_food!(game)
     else
         remove_tail!(game)  # Normal move (no food)
         game.reward = game.male_di_vivere                              #small penalty for surviving without eating anything
-        @debug "no food is eaten!" reward = game.reward
+       # @debug "no food is eaten!" reward = game.reward
     end
 end
 

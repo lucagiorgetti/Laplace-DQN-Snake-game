@@ -6,7 +6,7 @@ include("imports.jl")
 #ENV["JULIA_DEBUG"] = Main
 
 #setting up the logger
-name = "very_long_la_training1"
+name = "very_long_la_training5"
 trainer_path = "./trainers/very_long_training1.bson"
 
 io = open(name * ".txt", "w+")
