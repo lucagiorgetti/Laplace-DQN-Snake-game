@@ -1,3 +1,7 @@
+#imports.jl
+################################################################################################
+#new imports.jl script, now experience is defined as Array{Matrix{Int}]: is a stacking of 2 frames
+#################################################################################################
 using Images, ColorTypes, Plots
 using Random
 using StatsBase
@@ -11,27 +15,25 @@ using Optimisers
 using Distributions
 using LinearAlgebra
 using Mmap
+using GameZero
+using FileIO, JLD2
+
+#debug environment
+ENV["JULIA_DEBUG"] = Main
+
 
 #type alias
 const Experience = Tuple{
-    Matrix{Int64},               # state
-    CartesianIndex{2},           # action taken
-    Float64,                     # reward
-    Matrix{Int64},               # next state
-    Bool,                        # done
-    Vector{CartesianIndex{2}}    # available actions at time of action
+    Array{Int,4},                # 1.state
+    CartesianIndex{2},           # 2.action taken
+    Float64,                     # 3.reward
+    Array{Int,4},                # 4.next state
+    Bool,                        # 5.done
+    Vector{CartesianIndex{2}},   # 6.available actions at time of action
+    Vector{CartesianIndex{2}},   # 7.available actions at the next state
+    Vector{Bool}                 # 8.if available actions are suicidal                      
 }
-
-
-"""
-const ACTIONS = Dict(
-    CartesianIndex(-1, 0) => 1,  # Up
-    CartesianIndex(1, 0)  => 2,  # Down
-    CartesianIndex(0, -1) => 3,  # Left
-    CartesianIndex(0, 1)  => 4   # Right
-)
-"""
 
 include("structs.jl")     
 include("utils.jl")   
-include("la_utils.jl")
+#include("la_utils.jl")

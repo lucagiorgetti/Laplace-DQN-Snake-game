@@ -6,7 +6,7 @@ include("imports.jl")
 ENV["JULIA_DEBUG"] = Main
 
 #setting up the logger
-name = "long_training1"
+name = "very_long_double_training1"
 io = open(name * ".txt", "w+")
 logger = TerminalLogger(io;show_limited = false)
 global_logger(logger)
