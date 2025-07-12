@@ -107,7 +107,7 @@ mutable struct ReplayBuffer
         buffer::Vector{Experience}
         batch_size::Int
         
-        function ReplayBuffer(capacity = 10000)         
+        function ReplayBuffer(capacity = 50000)          #it was 10000    
                   buffer = Vector{Experience}(undef, 0)
                   batch_size = 64                      
                   if batch_size > capacity throw("batch_size cannot be greater than the capacity of the buffer.") end
@@ -159,9 +159,9 @@ mutable struct Trainer
     episode_rewards::Vector{Float32}
 
     function Trainer(; n_batches::Int = 1000, target_update_rate::Int = 1000,
-                     epsilon::Float32 = 1.0f0, epsilon_end::Float32 = 0.05f0, decay::Float32= 0.00001f0, save::Bool = true,
+                     epsilon::Float32 = 1.0f0, epsilon_end::Float32 = 0.05f0, decay::Float32= Float32(1e-6), save::Bool = true,
                      game::SnakeGame = SnakeGame(),
-                     model::Union{DQNModel, Nothing} = nothing)
+                     model::Union{DQNModel, Nothing} = nothing)    #I am decaying slower: it was 0.00001f0 
                      
         model = isnothing(model) ? DQNModel(game) : model
         buffer = ReplayBuffer()

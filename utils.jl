@@ -312,30 +312,32 @@ function empty_buffer!(rpb::ReplayBuffer)
            rpb.position = 1
 end 
 
-function save_buffer(rpb::ReplayBuffer, name = String)
+function save_buffer(rpb::ReplayBuffer, name::String)
+    path = "/mnt/buffers/"
+    if !isdir(path)
+        mkpath(path)
+    end
 
-          path = "./buffers/"
-          if !isdir(path) mkpath(path) end
-         
-          jldopen(path*name*".jld2", "w"; compress = true) do f
-                   f["buffer"] = rpb
-          end
-          println("Buffer saved to $(joinpath(path, name * ".jld2"))")
+    file_path = joinpath(path, name * ".bson")
+    BSON.@save file_path buffer=rpb
+    println("Buffer saved to $file_path")
 end
 
 function load_buffer(name::String)
-    path = "./buffers/"
-    file_path = joinpath(path, name * ".jld2")
+    path = "/mnt/buffers/"
+    file_path = joinpath(path, name * ".bson")
     if !isfile(file_path)
         error("Buffer file not found at $file_path")
     end
 
-    rpb = jldopen(file_path, "r") do f
-        f["buffer"]
+    data = BSON.load(file_path)
+    if !haskey(data, :buffer)
+        error("Key `:buffer` not found in BSON file.")
     end
     println("Buffer loaded from $file_path")
-    return rpb
+    return data[:buffer]
 end
+
 ###########################batch manipulation functions#################################################################################   
 function stack_exp(batch::Vector{Experience})
     batch_size = length(batch)

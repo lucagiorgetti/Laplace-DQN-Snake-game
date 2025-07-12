@@ -11,7 +11,7 @@ io = open(name * ".txt", "w+")
 logger = TerminalLogger(io;show_limited = false)
 global_logger(logger)
 
-tr = Trainer(n_batches = 100000)
+tr = Trainer(n_batches = 800000)
 train!(tr; trainer_name = name)
 
 flush(io)
