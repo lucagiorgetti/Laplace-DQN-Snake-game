@@ -16,6 +16,7 @@ using Distributions
 using LinearAlgebra
 using Mmap
 using GameZero
+using BSON
 #using FileIO, JLD2
 
 #debug environment

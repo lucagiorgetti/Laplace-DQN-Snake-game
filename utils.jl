@@ -36,7 +36,7 @@ function sample_food!(game::SnakeGame)
     # Update game state
     game.board[food_pos] = 2
     
-    @debug "Placing food at $food_pos"
+    #@debug "Placing food at $food_pos"               #also printed in virtual step
 end 
 
 #update board
@@ -71,7 +71,7 @@ function grow_maybe!(game::SnakeGame)
     if game.board[new_head] == 2  
         game.score += 1
         game.reward = game.eating_reward                                               #immediate reward = 1 for eating food
-        @debug "food in ($(new_head[1]),$(new_head[2])) eaten!" reward = game.reward
+        #@debug "food in ($(new_head[1]),$(new_head[2])) eaten!" reward = game.reward  #the problem is that this is printed also in virtual_step
         sample_food!(game)
     else
         remove_tail!(game)  # Normal move (no food)
@@ -132,8 +132,8 @@ function virtual_step(game::SnakeGame, model::DQNModel)
 end
 
 
-function assemble_state!(game::SnakeGame)
-    last_frames = game.board_history[1:game.n_frames]
+function assemble_state!(game::SnakeGame)    #fine
+    last_frames = game.lost  ?  game.board_history[(end - game.n_frames):(end - 1)] : game.board_history[(end + 1 - game.n_frames):end]
     stacked = cat(last_frames...; dims=3)
     game.state = reshape(stacked, game.board_size, game.board_size, game.n_frames, 1)
 end
@@ -156,6 +156,7 @@ function epsilon_greedy(game::SnakeGame, model::Union{DQNModel, Chain}, epsilon:
           push!(game.av_action_history, av_actions)               # For debugging
           
           assemble_state!(game)
+          #@debug "assembled state" game.state
           
           if Float32(only(rand(1))) < epsilon         
               act = rand(av_actions)  
@@ -196,7 +197,7 @@ end
 
 function play_episode(model::Union{DQNModel, Chain, Missing}, epsilon::Float32; actions_list::Union{Vector{CartesianIndex{2}},Missing}= missing)::Tuple{SnakeGame, Vector{Experience}, Float32}
     game = SnakeGame()
-    episode_reward = 0.f0
+    episode_reward = 0.0f0
     
     if ismissing(actions_list)
     	while !game.lost
@@ -438,12 +439,15 @@ function train!(tr::Trainer; trainer_name::String)
                  
                  batch = sample(tr.buffer)
                  states, actions, rewards, next_states, dones, av_actions, a_array, suicidal_mask, av_next_acts_array  = stack_exp(batch)
-                 
+                 #q_pred = tr.model.q_net(states)                                            # (n_actions, batch_size)
+    		 #q_pred_selected = [q_pred[a, i] for (i, a) in enumerate(actions)]
+    		 #q_pred_selected = reshape(q_pred_selected, :)                              # (batch_size,)
+    		 
     		 q_next = tr.model.t_net(next_states)
-    		 q_next[suicidal_mask] .= -100                          # this preserves the shape
-    		 max_next_q = dropdims(maximum(q_next, dims = 1), dims = 1)           
-		 q_target = @. rewards + tr.game.discount * max_next_q * (1 - dones)
-	
+    		 q_next[suicidal_mask] .= -100    
+    		 max_next_q = dropdims(maximum(q_next, dims = 1), dims = 1)                 # (batch_size,)
+		 q_target = @. rewards + 0.97 * max_next_q * (1 - dones)
+                 
 		 function loss_fun(z)
 		           q_pred_selected = [z[a, i] for (i, a) in enumerate(actions)]
 		           q_pred_selected = reshape(q_pred_selected, :)
@@ -479,7 +483,7 @@ function train!(tr::Trainer; trainer_name::String)
           
           if tr.save 
               
-              #plot_and_play(tr; save_name = trainer_name)
+              visualize(tr, trainer_name)
               save_buffer(tr.buffer, trainer_name)
               empty_buffer!(tr.buffer)                      #freeing up space
               save_trainer(tr, trainer_name) 
@@ -539,7 +543,7 @@ function log_hyperparameters(trainer::Trainer)
 end
 
 
-function plot_loss(tr::Trainer; size::Int = 100, save_name::String)
+function plot_loss(tr::Trainer; size::Int = 100, name::Union{String, Missing} = missing)
     batch_size = tr.buffer.batch_size
     n_batches = tr.n_batches
 
@@ -560,13 +564,17 @@ function plot_loss(tr::Trainer; size::Int = 100, save_name::String)
     end
        
     path = "./plots/"
-    if !isdir(path) mkpath(path) end
-    savefig(pl, path * save_name * ".png")
-
+    if !ismissing(name)
+    
+   	 if !isdir(path) mkpath(path) end
+    	 savefig(pl, path * name * ".png")
+    end
 end
 
 #plot average rewards
-function plot_avg_rewards(tr::Trainer; size::Int=100, save_name::String)
+function plot_avg_rewards(tr::Trainer; size::Int=100, name::Union{String, Missing} = missing)
+          
+          pl = nothing
           x = [i for i in 0:length(tr.episode_rewards)-1]
           y = tr.episode_rewards
           if length(y) ≥ size
@@ -577,33 +585,38 @@ function plot_avg_rewards(tr::Trainer; size::Int=100, save_name::String)
               ylabel!("average reward over $size episodes")
           end
           path = "./episode_rewards/"
-          if !isdir(path) mkpath(path) end
-          savefig(pl, path*save_name*".png")
-          return nothing    
+          
+          if !ismissing(name)
+          
+          	if !isdir(path) mkpath(path) end
+          	savefig(pl, path*name*".png")
+          	return nothing
+          end    
 end
 
-function play_best_game(tr::Union{Trainer, Missing}, gif_name::String; temp_model::Union{Chain, Nothing} = nothing)
+function play_best_game(tr::Union{Trainer, Missing}; name::Union{String, Missing}=missing, temp_model::Union{Chain, Nothing} = nothing)
           
           #if trainer is false it means that a temp_model has been passed
           plt = nothing
           
           model = ismissing(tr) ? missing : tr.model
-          game, _, episode_reward = play_episode(model, 0.f0)
+          game, _, episode_reward = play_episode(model, 0.0f0)
          
           anim = @animate for board in game.board_history                                   #I want to exit the loop when game.lost
    
              #plot board
              plot_board(board, plt)
-             
-             if game.lost
-                 @printf "Collision!! Final score %d \n" game.score
-             end
-    
          end
          
+         @printf "Final score %d \n" game.score
          path = "./trainer_gifs/"
-         if !isdir(path) mkpath(path) end
-         gif(anim, path*gif_name*".gif", fps=1)
+         
+         if !ismissing(name)
+         
+         	if !isdir(path) mkpath(path) end
+         	gif(anim, path*name*".gif", fps=1)
+         	
+         end
          return nothing    
 end
 
@@ -657,12 +670,55 @@ end
 #TODO:function to plot the buffer
 
 
-function visualize(name::String)         #name is either save_name and load_name
+function visualize(tr::Trainer, name::String)         #name is either save_name and load_name
 
-          rpb = load_buffer(name)
-          tr = load_trainer(name)
-          plot_loss(tr; size = 100, save_name = name)
-          plot_avg_rewards(tr; size = 100, save_name = name)
-          play_best_game(tr, name; temp_model = nothing)
-          #missing function to plot the buffer
+          #rpb = load_buffer(name)
+          #tr = load_trainer(name)
+          plot_loss(tr; size = 100, name = name)
+          plot_avg_rewards(tr; size = 100, name = name)
+          play_best_game(tr; name=name, temp_model = nothing)
+          plot_apple_histogram(tr.buffer; name= name)
 end 
+
+function count_apples_by_index(rpb::ReplayBuffer)
+    
+    game = SnakeGame()
+    food_list = game.food_list
+    count_per_index = zeros(Int, length(food_list))
+
+    for exp in rpb.buffer
+        state, _, reward, _, _, _, _, _ = exp
+
+        if reward > 0
+            pos = findfirst(x -> x == 2, state[:, :, end])  # food has value 2
+            idx = findfirst(==(pos), food_list)
+            if idx !== nothing
+                count_per_index[idx] += 1
+            end
+        end
+    end
+
+    return count_per_index
+end
+
+function plot_apple_histogram(rpb::ReplayBuffer; name::Union{String, Missing} = missing)
+    counts = count_apples_by_index(rpb)
+    pl = bar(1:length(counts),
+        counts,
+        xlabel = "Apple Index",
+        ylabel = "Times Eaten",
+        title = "# of apples in the buffer",
+        legend = false,
+        xlims = (0, 10) 
+        )
+     
+     path = "./buffer_histos/"   
+     if !ismissing(name)
+         
+         	if !isdir(path) mkpath(path) end
+         	gif(anim, path*name*".png", fps=1)
+         	
+     end
+     return nothing    
+end
+
