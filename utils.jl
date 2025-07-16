@@ -85,7 +85,7 @@ end
 function move_wrapper!(game::SnakeGame)
     grow_maybe!(game)  # Add new head
     
-    if check_collision(game)||length(game.board_history) > 400         #control on the length of the snake. It should                 
+    if check_collision(game)||length(game.board_history) > 500         #control on the length of the snake. It should                 
                                                                        #be only needed in play_best_game
         game.lost = true 
         game.reward = game.suicide_penalty                             #immediate reward = -1 if he looses
@@ -325,7 +325,7 @@ function save_buffer(rpb::ReplayBuffer, name::String)
 end
 
 function load_buffer(name::String)
-    path = "/mnt/buffers/"
+    path = "./buffers/"
     file_path = joinpath(path, name * ".bson")
     if !isfile(file_path)
         error("Buffer file not found at $file_path")
@@ -691,7 +691,7 @@ function count_apples_by_index(rpb::ReplayBuffer)
 
         if reward > 0
             pos = findfirst(x -> x == 2, state[:, :, end])  # food has value 2
-            idx = findfirst(==(pos), food_list)
+            idx = findfirst(==(pos), food_list)155538407
             if idx !== nothing
                 count_per_index[idx] += 1
             end
@@ -709,14 +709,15 @@ function plot_apple_histogram(rpb::ReplayBuffer; name::Union{String, Missing} = 
         ylabel = "Times Eaten",
         title = "# of apples in the buffer",
         legend = false,
-        xlims = (0, 10) 
+        color = "red",
+        xlims = (0, 21) 
         )
      
      path = "./buffer_histos/"   
      if !ismissing(name)
          
          	if !isdir(path) mkpath(path) end
-         	gif(anim, path*name*".png", fps=1)
+         	savefig(pl, path*name*".png")
          	
      end
      return nothing    
