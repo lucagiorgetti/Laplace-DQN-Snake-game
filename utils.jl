@@ -54,7 +54,7 @@ end
 #function to check collision
 function check_collision(game::SnakeGame) :: Bool
     head = game.snake[1]
-    return game.board[head] == -1 ||  count(==(head), game.snake) > 1  #true for a collision false otherwise, first condition check collision with the wall, second and third ones collisions with the snake itself.
+    return game.board[head] == -1 ||  count(==(head), game.snake) > 1 ||  game.prev_dir + game.direction == CartesianIndex(0,0) #true for a collision false otherwise, first condition check collision with the wall, second and third ones collisions with the snake itself. Last condition has been added only for play_snake.jl
 end
 
 #remove tail
@@ -85,7 +85,7 @@ end
 function move_wrapper!(game::SnakeGame)
     grow_maybe!(game)  # Add new head
     
-    if check_collision(game)||length(game.board_history) > 100         #control on the length of the snake. It should                 
+    if check_collision(game)||length(game.board_history) > 400         #control on the length of the snake. It should                 
                                                                        #be only needed in play_best_game
         game.lost = true 
         game.reward = game.suicide_penalty                             #immediate reward = -1 if he looses

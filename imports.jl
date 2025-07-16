@@ -15,7 +15,6 @@ using Optimisers
 using Distributions
 using LinearAlgebra
 using Mmap
-using GameZero
 using BSON
 #using FileIO, JLD2
 
@@ -35,6 +34,7 @@ const Experience = Tuple{
     Vector{Bool}                 # 8.if available actions are suicidal                      
 }
 
-include("structs.jl")     
-include("utils.jl")   
+Base.include(@__MODULE__, "structs.jl")  
+Base.include(@__MODULE__, "utils.jl")
+
 #include("la_utils.jl")
