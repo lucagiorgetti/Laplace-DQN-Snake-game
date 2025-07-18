@@ -483,7 +483,7 @@ function train!(tr::Trainer; trainer_name::String)
           
           if tr.save 
               
-              visualize(tr, trainer_name)
+              #visualize(tr, trainer_name)
               save_buffer(tr.buffer, trainer_name)
               empty_buffer!(tr.buffer)                      #freeing up space
               save_trainer(tr, trainer_name) 
@@ -667,15 +667,12 @@ function play_episode_with_animation(actions_list::Vector{CartesianIndex{2}};
     return game, exp_vec, episode_reward, anim
 end
 
-#TODO:function to plot the buffer
+function visualize(name::String)         #name is either save_name and load_name
 
-
-function visualize(tr::Trainer, name::String)         #name is either save_name and load_name
-
-          #rpb = load_buffer(name)
-          #tr = load_trainer(name)
-          plot_loss(tr; size = 100, name = name)
-          plot_avg_rewards(tr; size = 100, name = name)
+          rpb = load_buffer(name)
+          tr = load_trainer(name)
+          plot_loss(tr; size = 5000, name = name)
+          plot_avg_rewards(tr; size = 5000, name = name)
           play_best_game(tr; name=name, temp_model = nothing)
           plot_apple_histogram(tr.buffer; name= name)
 end 
@@ -691,7 +688,7 @@ function count_apples_by_index(rpb::ReplayBuffer)
 
         if reward > 0
             pos = findfirst(x -> x == 2, state[:, :, end])  # food has value 2
-            idx = findfirst(==(pos), food_list)155538407
+            idx = findfirst(==(pos), food_list)
             if idx !== nothing
                 count_per_index[idx] += 1
             end
@@ -710,16 +707,15 @@ function plot_apple_histogram(rpb::ReplayBuffer; name::Union{String, Missing} = 
         title = "# of apples in the buffer",
         legend = false,
         color = "red",
-        xlims = (0, 21) 
+        xlims = (0, 36) 
         )
      
      path = "./buffer_histos/"   
-     if !ismissing(name)
-         
-         	if !isdir(path) mkpath(path) end
-         	savefig(pl, path*name*".png")
-         	
+     if !ismissing(name)       
+         	if !isdir(path) mkpath(path) end        	
      end
+     savefig(pl, path*name*".png")
+         	
      return nothing    
 end
 
