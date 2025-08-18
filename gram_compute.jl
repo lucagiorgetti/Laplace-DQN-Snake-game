@@ -11,7 +11,7 @@ bf = load_buffer(name)
 tr.buffer = bf
 
 # Taking bigger batch size in order to have a better representation of the loss, it was 10_000
-tr.buffer.batch_size = 1000
+tr.buffer.batch_size = 256
 
 
 
@@ -44,9 +44,9 @@ function compute_gram(tr::Trainer, name::String)
 
     # Deviation matrix, let's start with a quite big one 
     # (for Marchenko-Pastur should go to infinity), it was 1_000
-    T = 1_000
-    D = zeros(Float64, T, param_count)
-    thin = 1_000
+    T = 500
+    D = zeros(Float64, param_count, T)
+    thin = 500
     n_batches = 1_000_000
     
     # Initializing variables
@@ -104,7 +104,7 @@ function compute_gram(tr::Trainer, name::String)
         if (nb % thin)  == 0
             
             dD = theta - theta_SWA
-            D[store_index, :] = dD
+            @views copyto!(D[:, store_index], dD)
             
             if laplace_counter % 5 == 0
                 @printf "store_index: %d\n" store_index
@@ -120,21 +120,21 @@ function compute_gram(tr::Trainer, name::String)
     
     epsilon = 1e-8
     D = D ./ sqrt.(var_SWA .+ epsilon)   # Normalize each parameter's deviations
-    Gr = (D * D') / param_count
+    Gr = (D' * D) / param_count
   
     if any(Gr .== 0)
         throw("Something wrong filling D")
     end
     
     # --- Independence check ---
-    offdiag = Gr .- Diagonal(diag(Gr))
+    offdiag = Gr .- I
     mean_abs_offdiag = mean(abs.(offdiag))
     max_abs_offdiag  = maximum(abs.(offdiag))
-    @info "Row independence: mean|offdiag|=$(round(mean_abs_offdiag, digits=4)) " *
+    @info "Independence check: mean|offdiag|=$(round(mean_abs_offdiag, digits=4)) " *
       "max|offdiag|=$(round(max_abs_offdiag, digits=4))"
     # --- End of independence check ---
 
-    path = "./gram_matrix/"
+    path = "/mnt/gram_matrix/"
     if !isdir(path)
         mkpath(path)
     end
