@@ -22,22 +22,31 @@ function load_buffer(name::String)
     return data[:buffer]
 end
 
-function save_theta!(tr::Trainer, name::String)
+function save_theta!(tr::Trainer, name::String; dir::AbstractString="/mnt/Q_weights", overwrite::Bool=true)
+    mkpath(dir)  # make sure directory exists
+    file_path = joinpath(dir, string(name, ".csv"))
 
-    path = "/mnt/Q_weights/"
-    file_path = joinpath(path, name * ".csv")
-    
-    if !isdir(file_path)
-        mkpath(file_path)
+    # If a directory with that name exists, refuse — user likely made the earlier mistake.
+    if isdir(file_path)
+        error("Refusing to write: '$file_path' exists and is a directory. Remove it or choose a different name.")
     end
-   
+
+    if overwrite && isfile(file_path)
+        rm(file_path)
+    end
+
+    # get parameters
     theta, _ = Flux.destructure(tr.model.q_net)
-    theta = Float64.(theta)                        # ensure Float64
-    row = DataFrame([theta'], :auto)               # make it a 1-row DataFrame
+    theta = Float64.(theta)  # ensure Float64
 
-    open(filepath, "a") do io
-        CSV.write(io, row; writeheader=false)
+    # format with high precision to avoid precision loss when reloading
+    line = join([@sprintf("%.17g", x) for x in theta], ",")
+
+    open(file_path, "a") do io
+        println(io, line)    # writes the CSV row + newline, file auto-closed
     end
+
+    return file_path
 end
 
 function compute_gram(tr::Trainer, name::String)
@@ -96,11 +105,10 @@ function compute_gram(tr::Trainer, name::String)
     #computing correlation matrix
     
     o = CovMatrix(n_snaps)
-    begin
-       rows = CSV.rows("/mnt/Q_weights/"*name*".csv")
-       itr = (r for r in rows)
-       fit!(o, itr)
-    end 
+   
+    rows = CSV.Rows("/mnt/Q_weights/"*name*".csv"; header = false)
+    itr = (Float64.(collect(r)) for r in rows)
+    fit!(o, itr)
 
     path = "/mnt/gram_stats/"
     if !isdir(path)
