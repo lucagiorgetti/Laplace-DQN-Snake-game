@@ -1,8 +1,26 @@
+#gram_compute.jl 
 ####################################################################
-# This script is meant to find the optimal K parameter of SWAG
+# This script is meant to find the optimal K parameter of SWAG, does not work, online mean and std are not accurate enough. Late snapshots of 
+# the weights are very correllated.
 ####################################################################
 
 include("imports.jl")
+
+
+function load_buffer(name::String)
+    path = "/mnt/buffers/"
+    file_path = joinpath(path, name * ".bson")
+    if !isfile(file_path)
+        error("Buffer file not found at $file_path")
+    end
+
+    data = BSON.load(file_path)
+    if !haskey(data, :buffer)
+        error("Key `:buffer` not found in BSON file.")
+    end
+    println("Buffer loaded from $file_path")
+    return data[:buffer]
+end
 
 name = "very_long_double_training3"
 tr = load_trainer(name)
@@ -127,7 +145,7 @@ function compute_gram(tr::Trainer, name::String)
     end
     
     # --- Independence check ---
-    offdiag = Gr .- I
+    offdiag = Gr .- I(size(Gr,1))
     mean_abs_offdiag = mean(abs.(offdiag))
     max_abs_offdiag  = maximum(abs.(offdiag))
     @info "Independence check: mean|offdiag|=$(round(mean_abs_offdiag, digits=4)) " *
