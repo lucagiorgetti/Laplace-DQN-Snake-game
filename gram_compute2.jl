@@ -22,42 +22,55 @@ function load_buffer(name::String)
     return data[:buffer]
 end
 
-function save_theta!(tr::Trainer, name::String; dir::AbstractString="/mnt/Q_weights", overwrite::Bool=true)
-    mkpath(dir)  # make sure directory exists
-    file_path = joinpath(dir, string(name, ".csv"))
+function Q_weights_matrix(m::Int64, n::Int64; dir::AbstractString="/mnt/Q_weights", overwrite::Bool=true)
 
-    # If a directory with that name exists, refuse — user likely made the earlier mistake.
-    if isdir(file_path)
-        error("Refusing to write: '$file_path' exists and is a directory. Remove it or choose a different name.")
-    end
+          mkpath(dir)  # make sure directory exists
+          file_path = joinpath(dir, string(name, ".bin"))
 
-    if overwrite && isfile(file_path)
-        rm(file_path)
-    end
+          # If a directory with that name exists, refuse — user likely made the earlier mistake.
+          if isdir(file_path)
+              error("Refusing to write: '$file_path' exists and is a directory. Remove it or choose a different name.")
+          end
 
+          if overwrite && isfile(file_path)
+              rm(file_path)
+          end
+          
+          isfile(file_path) || open(file_path, "w") do io
+                      # Reserve space: each Float64 takes 8 bytes
+                      write(io, zeros(Float64, m, n))
+          end
+
+          # Open for reading/writing + mmap
+          weights_file = open(file_path, "r+")
+          weights_matrix = mmap(weights_file, Matrix{Float64}, (m, n))
+                     
+          return weights_matrix, weights_file
+end
+
+function add_theta!(tr::Trainer, matrix::Matrix{Float64}, position::Int)
+  
     # get parameters
     theta, _ = Flux.destructure(tr.model.q_net)
     theta = Float64.(theta)  # ensure Float64
 
-    # format with high precision to avoid precision loss when reloading
-    line = join([@sprintf("%.17g", x) for x in theta], ",")
-
-    open(file_path, "a") do io
-        println(io, line)    # writes the CSV row + newline, file auto-closed
-    end
-
-    return file_path
+    matrix[:, position] = theta
 end
 
 function compute_gram(tr::Trainer, name::String)
 
     n_batches = 200_000
+    thin = 100
+    n_snaps = div(n_batches, thin)
+    param_count = length(Flux.destructure(tr.model.q_net)[1])
+    opt_state = Flux.setup(tr.model.opt, tr.model.q_net)
+    
+    Q_weights, weights_file = Q_weights_matrix(param_count, n_snaps)
     
     # Initializing variables
     nb = 1
-    n_snaps = 0
-    opt_state = Flux.setup(tr.model.opt, tr.model.q_net)
-    thin = 100
+    store_index = 1 
+    
 
     while nb <= n_batches
     
@@ -95,8 +108,8 @@ function compute_gram(tr::Trainer, name::String)
         end
 
         if nb % thin == 0
-           save_theta!(tr, name)
-           n_snaps += 1
+           add_theta!(tr, Q_weights, store_index)
+           store_index += 1
         end 
         
         nb += 1
@@ -105,10 +118,7 @@ function compute_gram(tr::Trainer, name::String)
     #computing correlation matrix
     
     o = CovMatrix(n_snaps)
-   
-    rows = CSV.Rows("/mnt/Q_weights/"*name*".csv"; header = false)
-    itr = (Float64.(collect(r)) for r in rows)
-    fit!(o, itr)
+    fit!(o, Q_weigths |> eachrow)
 
     path = "/mnt/gram_stats/"
     if !isdir(path)
@@ -116,9 +126,10 @@ function compute_gram(tr::Trainer, name::String)
     end
 
     file_path = joinpath(path, name * ".bson")
-    BSON.@save file_path gram_matrix = Gr
+    BSON.@save file_path gram_matrix = o
     println("Gram stats saved to $file_path")
-
+    
+    close(weights_file)
     return nothing
 end
 
