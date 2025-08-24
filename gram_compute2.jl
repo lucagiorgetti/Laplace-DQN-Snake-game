@@ -118,7 +118,7 @@ function compute_gram(tr::Trainer, name::String)
     #computing correlation matrix
     
     o = CovMatrix(n_snaps)
-    fit!(o, Q_weigths |> eachrow)
+    fit!(o, Q_weights |> eachrow)
 
     path = "/mnt/gram_stats/"
     if !isdir(path)

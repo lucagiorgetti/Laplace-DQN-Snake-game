@@ -9,6 +9,7 @@ function minimum(d::MarchenkoPastur)
     (1 - sqrt(d.gamma))^2
 end
 
+
 function maximum(d::MarchenkoPastur)
     (1 + sqrt(d.gamma))^2
 end
@@ -35,7 +36,7 @@ eigs_counts = values(eigs_dict)
 """
 tr = Trainer()
 param_count = length(Flux.destructure(tr.model.q_net)[1])
-K = size(gram_matrix)[1]
+K = size(gram_matrix)[2]
 gamma = K/param_count
 
 dist =  MarchenkoPastur(gamma)

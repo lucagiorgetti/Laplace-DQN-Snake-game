@@ -389,12 +389,14 @@ end
 function fill_buffer!(tr::Trainer)
          @info "############################## FILLING THE BUFFER ###############################"
         
-         while !isfull(tr.buffer)
+         length_exp = 0
+         while length_exp <= tr.buffer.capacity
                 _, exp_vec, _ = play_episode(tr.model, tr.epsilon)
                
                 for exp in exp_vec
                      store!(tr.buffer, exp)
-                end            
+                end 
+                length_exp += length(exp_vec)               
          end 
          @info "##############################  BUFFER FULL ######################################"
 end

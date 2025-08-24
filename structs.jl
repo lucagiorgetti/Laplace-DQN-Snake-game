@@ -121,27 +121,30 @@ mutable struct DQNModel
     q_net::Chain
     t_net::Chain
     opt::RMSProp
-
-    function DQNModel(game::SnakeGame, model_rng = Xoshiro(42))
-        board_size = game.board_size
-        n_actions = 3
-
-	q_net = Chain(
-    		# now 2 ⇒ 16 channels
-    		Conv((3, 3), 2 => 16, relu; pad=(1,1)),                         #304 params
-    		Conv((3, 3), 16 => 32, relu; pad=(1,1)),                        #4 640 params
-    		Conv((6, 6), 32 => 64, relu),                                   #73 792 params
-    		Flux.flatten,                                                  
-    		Dense((board_size - 5)*(board_size - 5)*64, 64, relu),          #102 464 params
-    		Dense(64, n_actions)                                            #195 params
-		)
-
-        t_net = deepcopy(q_net)
-        opt = RMSProp(0.0005)   
-
-        new(q_net, t_net, opt)
-    end
 end
+
+# Outer constructors
+function DQNModel(board_size::Int=10, n_actions::Int = 3; lr=0.0005)
+    q_net = Chain(
+        Conv((3, 3), 2 => 16, relu; pad=(1,1)),
+        Conv((3, 3), 16 => 32, relu; pad=(1,1)),
+        Conv((6, 6), 32 => 64, relu),
+        Flux.flatten,
+        Dense((board_size - 5)*(board_size - 5)*64, 64, relu),
+        Dense(64, n_actions)
+    )
+    t_net = deepcopy(q_net)
+    opt = RMSProp(lr)
+    return DQNModel(q_net, t_net, opt)
+end
+
+# Old constructor for backward compatibility (so BSON can still reload old models)
+function DQNModel(game::SnakeGame, model_rng = Xoshiro(42))
+    return DQNModel(game.board_size, 3; lr=0.0005)
+end
+
+# Register with Functors so saving/loading works
+Flux.@functor DQNModel
 
 ########################################wrapper object########################################################
 #no modifications
