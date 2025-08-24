@@ -221,5 +221,13 @@ function resume_training!(; n_batches::Int=500_000, trainer_name::String, la_tra
     end 
                   
     @info "############################## END TRAINING ###############################"
+          
+    save_buffer(tr.buffer, la_trainer_name)
+    empty_buffer!(tr.buffer)
+    save_trainer(tr, la_trainer_name) 
+    @info "Trainer state saved to $trainer_name"   
+end
 
+# === Run ===
+resume_training!(n_batches=500_000, trainer_name="very_long_double_training3", la_trainer_name="very_long_la_double_training3")
 
