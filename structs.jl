@@ -144,7 +144,7 @@ function DQNModel(game::SnakeGame, model_rng = Xoshiro(42))
 end
 
 # Register with Functors so saving/loading works
-#Flux.@functor DQNModel
+Flux.@functor DQNModel
 
 ########################################wrapper object########################################################
 #no modifications

@@ -109,7 +109,7 @@ function step!(game::SnakeGame, action::CartesianIndex{2})
 end
 
 # virtual step, does not change the game. It is only for evaluation purpose.
-function virtual_step(game::SnakeGame, model::DQNModel)
+function virtual_step(game::SnakeGame, model::Union{DQNModel, Chain})
     if game.lost
         push!(game.av_next_action_history, [CartesianIndex(0,0) for _ in 1:3])
         push!(game.next_is_suicidal_history, trues(3))
@@ -162,7 +162,7 @@ function epsilon_greedy(game::SnakeGame, model::Union{DQNModel, Chain}, epsilon:
               act = rand(av_actions)  
           else
           
-             exp_rewards = typeof(model) == Chain ? temp_model(game.state) : model.q_net(game.state)
+             exp_rewards = model isa Chain ? model(game.state) : model.q_net(game.state)
              max_idx = argmax(exp_rewards)
              act = av_actions[max_idx]
              #@debug "best action selected!" expected_rewards = exp_rewards max_idx = max_idx
@@ -314,7 +314,7 @@ function empty_buffer!(rpb::ReplayBuffer)
 end 
 
 function save_buffer(rpb::ReplayBuffer, name::String)
-    path = "/mnt/buffers/"
+    path = "./buffers/"
     if !isdir(path)
         mkpath(path)
     end
@@ -387,18 +387,18 @@ end
 
 #method fill the buffer for the trainer, useful to debug
 function fill_buffer!(tr::Trainer)
-         @info "############################## FILLING THE BUFFER ###############################"
-        
-         length_exp = 0
-         while length_exp <= tr.buffer.capacity
-                _, exp_vec, _ = play_episode(tr.model, tr.epsilon)
-               
-                for exp in exp_vec
-                     store!(tr.buffer, exp)
-                end 
-                length_exp += length(exp_vec)               
-         end 
-         @info "##############################  BUFFER FULL ######################################"
+    @info "############################## FILLING THE BUFFER ###############################"
+   
+    length_exp = 0
+    while length_exp <= tr.buffer.capacity
+           _, exp_vec, _ = play_episode(tr.model, tr.epsilon)
+          
+           for exp in exp_vec
+                store!(tr.buffer, exp)
+           end 
+           length_exp += length(exp_vec)               
+    end 
+    @info "##############################  BUFFER FULL ######################################"
 end
 
 function track_loss!(tr::Trainer, item)
@@ -545,7 +545,7 @@ function log_hyperparameters(trainer::Trainer)
 end
 
 
-function plot_loss(tr::Trainer; size::Int = 100, name::Union{String, Missing} = missing)
+function plot_loss(tr::Trainer; size::Int = 5000, name::Union{String, Missing} = missing)
     batch_size = tr.buffer.batch_size
     n_batches = tr.n_batches
 
@@ -554,7 +554,7 @@ function plot_loss(tr::Trainer; size::Int = 100, name::Union{String, Missing} = 
     y = tr.losses
 
     # Plot original loss
-    pl = plot(x, y, label = "Loss", lw = 2, lc = :blue)
+    pl = plot(x, y, label = "Loss", lw = 4, lc = :blue)
     xlabel!("Experience Samples")
     ylabel!("Loss")
 
@@ -562,7 +562,16 @@ function plot_loss(tr::Trainer; size::Int = 100, name::Union{String, Missing} = 
     if length(y) ≥ size
         z = [mean(y[i-size+1:i]) for i in size:length(y)]
         x_avg = x[size:end]
-        plot!(x_avg, z, label = "Moving Avg", lw = 2, lc = :red)
+        plot!(x_avg, z, label = "Moving Avg", lw = 4, lc = :red,
+              xtickfont = font(13),
+              ytickfont = font(13),
+              xguidefont = font(15),
+              yguidefont = font(15),
+              left_margin = 10mm,
+              bottom_margin = 10mm,
+              top_margin = 10mm,
+              right_margin = 10mm
+              )
     end
        
     path = "./plots/"
@@ -574,7 +583,7 @@ function plot_loss(tr::Trainer; size::Int = 100, name::Union{String, Missing} = 
 end
 
 #plot average rewards
-function plot_avg_rewards(tr::Trainer; size::Int=100, name::Union{String, Missing} = missing)
+function plot_avg_rewards(tr::Trainer; size::Int=5000, name::Union{String, Missing} = missing)
           
           pl = nothing
           x = [i for i in 0:length(tr.episode_rewards)-1]
@@ -582,9 +591,29 @@ function plot_avg_rewards(tr::Trainer; size::Int=100, name::Union{String, Missin
           if length(y) ≥ size
               z = [mean(y[i-size+1:i]) for i in size:length(y)]
               x_avg = x[size:end]
-              pl = plot(x_avg, z, label = "Moving Avg", lw = 2, lc = :red)
-              xlabel!("episodes")
-              ylabel!("average reward over $size episodes")
+
+              # create rounded x-tick labels (1 decimal)
+              xtick_positions = range(first(x_avg), stop=last(x_avg), length=6) # e.g., 6 ticks
+              xtick_labels = [@sprintf("%.1e", xval) for xval in xtick_positions]
+
+
+              pl = plot(
+                        x_avg, z,
+                        label = "Moving Avg",
+                        lw = 4,
+                        lc = :red,
+                        xlabel = "episodes",
+                        ylabel = "avg. reward over $size games",
+                        xtickfont = font(13),
+                        ytickfont = font(13),
+                        xguidefont = font(15),
+                        yguidefont = font(15),
+                        left_margin = 10mm,
+                        bottom_margin = 10mm,
+                        top_margin = 10mm,
+                        right_margin = 10mm,
+                        xticks = (xtick_positions, xtick_labels)  # use rounded tick labels
+                    )
           end
           path = "./episode_rewards/"
           
@@ -673,9 +702,10 @@ function visualize(name::String)         #name is either save_name and load_name
 
           rpb = load_buffer(name)
           tr = load_trainer(name)
+          tr.buffer = rpb
           plot_loss(tr; size = 5000, name = name)
           plot_avg_rewards(tr; size = 5000, name = name)
-          play_best_game(tr; name=name, temp_model = nothing)
+          #play_best_game(tr; name=name, temp_model = nothing)
           plot_apple_histogram(tr.buffer; name= name)
 end 
 

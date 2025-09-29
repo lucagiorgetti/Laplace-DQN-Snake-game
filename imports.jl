@@ -14,11 +14,9 @@ using TerminalLoggers
 using Optimisers
 using Distributions
 using LinearAlgebra
-using Mmap
 using BSON
 using OnlineStats
-using CSV
-using DataFrames
+using Measures
 #using FileIO, JLD2
 
 #debug environment

@@ -9,6 +9,7 @@
 #########################################################################
 
 include("imports.jl")
+BLAS.set_num_threads(2)
 
 mutable struct MeanStd 
     n::Int
@@ -60,7 +61,7 @@ function check_plateau(tr::Trainer; window::Int=2000, fig::Union{Missing, Bool}=
           
     if fig
         pl = plot(tr.episode_rewards, label = "Episode rewards", lw = 2, lc = :red)
-        plot!(pl, x, @.(coeffs[2]*x + coeffs[2]), lw = 2, lc = :navy)
+        plot!(pl, x, @.(coeffs[1]*x + coeffs[2]), lw = 2, lc = :navy)
         xlabel!("episodes")
         ylabel!("rewards")
         display(pl)
@@ -82,7 +83,7 @@ end
 function sample_model(mean::Array{Float64}, var::Array{Float64}, D::Matrix{Float64}, restructure)
     Gamma_diag = compute_Gamma_diag(var)
     d = length(mean) # total size of the model
-    K = size(D, 2) == 6 ? 6 : @error "Size of D is not 6, but $(size(D,2))"
+    K = size(D, 2) == 58 ? 58 : @error "Size of D is not 58, but $(size(D,2))"
     nd = MvNormal(fill(.0, d), I)   
     nK = MvNormal(fill(.0, K), I)
           
@@ -96,15 +97,20 @@ end
 function laplace_sampling!(tr::Trainer, mean::Vector{Float64}, var::Vector{Float64}, D::AbstractMatrix; n_models::Int=5000, epsilon::Float32=0.0f0, re)
     @info "Starting sampling LA models" 
           
-    _, _, tr_reward = play_episode(missing, 0.f0)
+    _, _, tr_reward = play_episode(tr.model, 0.f0)
     n_better_models = 0
            
     for n in 1:n_models
+
         model = sample_model(mean, var, D, re)
-        _, exp, episode_reward = play_episode(model, 0.0f0)
-        if episode_reward >= tr_reward
+        _, exp_vec, episode_reward = play_episode(model, 0.0f0)
+
+        if episode_reward > tr_reward
             n_better_models += 1
-            store!(tr.rpb, exp)
+
+            for exp in exp_vec
+                store!(tr.buffer, exp)
+            end
         end
     end
    
@@ -113,7 +119,7 @@ end
 
 function resume_training!(; n_batches::Int=500_000, trainer_name::String, la_trainer_name::String)
     tr = load_trainer(trainer_name)
-    tr.buffer.batch_size = 1024
+    #tr.buffer.batch_size = 64
           
     if tr.save
         log_hyperparameters(tr)
@@ -124,9 +130,9 @@ function resume_training!(; n_batches::Int=500_000, trainer_name::String, la_tra
     param_count = length(theta_init)
           
     fill_buffer!(tr)
+    opt_state = Flux.setup(tr.model.opt, tr.model.q_net)
           
-    K = 6                                          
-    thin = 1000
+    K = 58                                             
     position = 1
     laplace = false                                  
     deviation_matrix = zeros(Float64, (param_count, K))
@@ -136,15 +142,16 @@ function resume_training!(; n_batches::Int=500_000, trainer_name::String, la_tra
     @info "############################## START TRAINING ###############################"
     while nb <= n_batches
         # check for plateau every buffer.capacity steps
-        if nb % tr.buffer.capacity == 0 && !laplace
+        if nb == 50_000 && !laplace
+            @info "Checking plateau"
             laplace = check_plateau(tr; window = 2000)
             if laplace
                 @info "Plateau detected at batch $nb — entering Laplace regime"
             end
         end
 
-        # collect deviations every 'thin' steps if Laplace regime is active
-        if laplace && (nb % thin == 0) && (position <= K)
+        # collect deviations if Laplace regime is active
+        if laplace && (position <= K)
             theta, _ = Flux.destructure(tr.model.q_net)
             deviation_matrix[:, position] = Float64.(theta)
             position += 1
@@ -152,10 +159,17 @@ function resume_training!(; n_batches::Int=500_000, trainer_name::String, la_tra
 
         # once K deviations are collected, run Laplace sampling
         if laplace && (position == K + 1)
+            
+            for c in eachcol(deviation_matrix)
+                fit!(o, c)
+            end
+
             avg = mean(o)
-            var = var(o)
-            deviation_matrix .-= avg[:, ones(K)]
-            laplace_sampling!(tr, avg, var, deviation_matrix, re=re)
+            vars = var(o)
+            deviation_matrix .-= avg
+            laplace_sampling!(tr, avg, vars, deviation_matrix, re=re)
+
+            #resetting
             deviation_matrix .= 0.0
             o = MeanStd(param_count)
             position = 1
@@ -198,7 +212,7 @@ function resume_training!(; n_batches::Int=500_000, trainer_name::String, la_tra
             loss_fun(q_pred)
         end
 
-        Flux.update!(Flux.setup(tr.model.opt, tr.model.q_net), tr.model.q_net, only(grads))
+        Flux.update!(opt_state, tr.model.q_net, only(grads))
         if isnothing(only(grads))
             @warn "Network has not been updated"
         end
@@ -208,15 +222,14 @@ function resume_training!(; n_batches::Int=500_000, trainer_name::String, la_tra
             @info "Batch $nb | Target network updated." 
         end
 		
-        if nb % 5 == 0 
+        if nb % 100 == 0 
             @printf "%d / %d -- episode_reward %.3f \n" nb n_batches episode_reward
         end
 		 
         push!(tr.episode_rewards, episode_reward)	
         loss_val = Flux.huber_loss(q_pred_selected, q_target) |> float	 
         track_loss!(tr, loss_val)
-        tr.epsilon = max(tr.epsilon - tr.decay, tr.epsilon_end)                            
-		
+        tr.epsilon = max(tr.epsilon - tr.decay, tr.epsilon_end)
         nb += 1
     end 
                   
@@ -225,9 +238,9 @@ function resume_training!(; n_batches::Int=500_000, trainer_name::String, la_tra
     save_buffer(tr.buffer, la_trainer_name)
     empty_buffer!(tr.buffer)
     save_trainer(tr, la_trainer_name) 
-    @info "Trainer state saved to $trainer_name"   
+    @info "Trainer state saved to $la_trainer_name"   
 end
 
 # === Run ===
-resume_training!(n_batches=500_000, trainer_name="very_long_double_training3", la_trainer_name="very_long_la_double_training3")
+resume_training!(n_batches=100_000, trainer_name="very_long_double_training3", la_trainer_name="very_long_la_double_training3")
 
