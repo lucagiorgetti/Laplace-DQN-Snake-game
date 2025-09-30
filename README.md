@@ -24,10 +24,7 @@ A vanilla DQN, with a single frame as state of the Q-nework leads to poor result
 
 3. **Modified DQN Loss**  
    The standard DQN loss is:
-   <div align="center">
-  <img src="https://render.githubusercontent.com/render/math?math=L_i(\theta_i)%20%3D%20\mathbb{E}_{(s,a,r,s')\sim U(D)}%5B(r%20%2B%20\gamma%20\max_{a'}%20Q(s',a';\theta_i^-) - Q(s,a;\theta_i))^2%5D" alt="DQN Loss">
-</div>
-
+   <img src="https://latex.codecogs.com/png.latex?L_i(\theta_i)%3D\mathbb{E}_{(s,a,r,s')\sim U(D)}[(r%2B\gamma\max_{a'}Q(s',a';  \theta_i^-)-Q(s,a;\theta_i))^2]" alt="DQN Loss">
    However, the maximum over all actions can lead to overestimation of Q-values, which impairs performance.  
    By **excluding losing actions** from the maximum selection, we mitigate this effect.
 
