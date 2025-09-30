@@ -11,3 +11,6 @@ The snake starts the game, as a single point, from the bottom left of the grid.
 ## DQN
 A vanilla DQN, with a single frame as state of the Q-nework leads to poor results. The following gif shows the best game after 100_000 mini-batches of training:
 
+![Vanilla DQN, best game](trainer_gifs/very_long_training1.gif)
+
+
