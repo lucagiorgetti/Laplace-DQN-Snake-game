@@ -34,4 +34,25 @@ After these improvements the snake reaches a score of 33. The best game played i
 
 ![Improved DQN, best game](trainer_gifs/very_long_double_training3.gif)
 
+(See also this [DragonWarrior15](https://github.com/DragonWarrior15/snake-rl) from which I took inspiration).
+The following table shows a list of the hyperparameters:
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| Discount factor ($\gamma$) | 0.97 | Balances the importance of immediate versus future rewards. |
+| Learning rate ($\eta$) | 0.0005 | Step size used by the optimizer (RMSProp). |
+| Momentum ($\rho$) | 0.9 | Momentum parameter used by the optimizer. |
+| Batch size | 64 | Number of experiences sampled from the buffer per training step. |
+| Target update rate | 1000 | Frequency (in number of mini-batches) of synchronizing the target network with the Q-network. |
+| Replay buffer capacity | 50,000 | Number of experiences stored in the buffer; training starts once the buffer is full. |
+| Initial exploration rate ($\epsilon$) | 1.0 | Probability of choosing a random action at the beginning of training. |
+| Final exploration rate | 0.05 | Minimum exploration rate during training. |
+| Exploration decay rate | $1 \times 10^{-6}$ | Amount subtracted from $\epsilon$ after each mini-batch. |
+| n\_batches | 1,200,000 | Total number of mini-batch updates performed. |
+| Eating reward | 1.0 | Reward the agent gets for eating an apple. |
+| Suicide penalty | -1.0 | Penalty the agent gets if it collides with a wall or itself. |
+| Male di vivere | -0.01 | Penalty the agent receives for making a step without dying or eating an apple. |
+
+
+
 
