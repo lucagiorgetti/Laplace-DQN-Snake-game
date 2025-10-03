@@ -52,7 +52,9 @@ The following table shows a list of the hyperparameters:
 | Suicide penalty | -1.0 | Penalty the agent gets if it collides with a wall or itself. |
 | Male di vivere | -0.01 | Penalty the agent receives for making a step without dying or eating an apple. |
 
-%here goes an explenation of the metrics and average episode rewards graph.
+A good metric to track the performance of the DQN is the average episode reward over a a window of episodes, as there is not a direct correspondence from the performance and the loss. This is the average episode reward over the last 5000 episodes:
+
+![episode_reward](\images\rewards_very_long_double_training3.png)
 
 ## Laplace extended algorithm
 The Laplace approximation locally approximates the loss function in the neural network weights space around a minimum fitting the best Gaussian.
@@ -65,8 +67,9 @@ The Laplace algorithm works following these steps:
 
 1. **DQN Training**: train the Q-network using the DQN.
 2. **Storing Q-network weights**: when the episode rewards plateuas start collecting the weights of the Q-network at every new mini-batch update.
-3. **Computing Gaussian**: when the Q-network weights have been collected K times (which is the the size of the low-rank covariance) compute the covariance matrix approximation as a diagonal part + an off-diagonal part: $\Sigma = \tfrac{1}{2} \Sigma_\text{diag} \tfrac{1}{2} \Sigma_\text{off-diag}$. $\Sigma_\text{diag}$ is a diagonal matrix having the variances of the weights along the diagonal; $Sigma_\text{of-diag} = \tfrac{1}{K - 1} D D^T, where D is a matrix having as columns the snapshots of the Q-network weights previously collected from which the average of them has been subtracted.
-4. **Sampling new models**:
+3. **Computing Gaussian**: when the Q-network weights have been collected K times (which is the the size of the low-rank covariance) compute the covariance matrix approximation as a diagonal part + an off-diagonal part: $\Sigma = \tfrac{1}{2} \Sigma_\text{diag} \tfrac{1}{2} \Sigma_\text{off-diag}$. $\Sigma_\text{diag}$ is a diagonal matrix having the variances of the weights along the diagonal; $Sigma_\text{of-diag} = \tfrac{1}{K - 1} D D^T$, where $D$ is a matrix having as columns the snapshots of the Q-network weights previously collected from which the average of them has been subtracted.
+4. **Sampling new models**: Sampling models from the Gaussian distribution and use the ones with higher episode reward than the current Q-network to collect experience and add it to the buffer.
+5. **Continue DQN**: go on with the DQN using the enriched buffer.
 
 
 
