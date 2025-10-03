@@ -41,7 +41,6 @@ The following table shows a list of the hyperparameters:
 |-----------|-------|-------------|
 | Discount factor ($\gamma$) | 0.97 | Balances the importance of immediate versus future rewards. |
 | Learning rate ($\eta$) | 0.0005 | Step size used by the optimizer (RMSProp). |
-| Momentum ($\rho$) | 0.9 | Momentum parameter used by the optimizer. |
 | Batch size | 64 | Number of experiences sampled from the buffer per training step. |
 | Target update rate | 1000 | Frequency (in number of mini-batches) of synchronizing the target network with the Q-network. |
 | Replay buffer capacity | 50,000 | Number of experiences stored in the buffer; training starts once the buffer is full. |
@@ -53,6 +52,21 @@ The following table shows a list of the hyperparameters:
 | Suicide penalty | -1.0 | Penalty the agent gets if it collides with a wall or itself. |
 | Male di vivere | -0.01 | Penalty the agent receives for making a step without dying or eating an apple. |
 
+%here goes an explenation of the metrics and average episode rewards graph.
+
+## Laplace extended algorithm
+The Laplace approximation locally approximates the loss function in the neural network weights space around a minimum fitting the best Gaussian.
+Once the approximation is computed is possibile to sample models with probabilities given by the Gaussian; so, sampling models in the region next to the minimum have high probability, and more and more you move away from the minimum towards the tails of the distribution more the probabilty decreases. Applying such approximation to the loss landscape requires a pre-trained model, i.e. a model that has already reached a (global or local) minimum. 
+
+There are several ways to build this approximation and the most of them boils down on how to compute the Hessian of the loss function with respect to the weights $\tfrac{\partial H_{ij}}{\partial \theta_i \theta_j}$. Indeed, directly computing it, is in my case infeasible because of the size of the Q-network.
+My choice falls on a low rank approximation of the covarance matrix, which is the inverse of the Hessian for a Gaussian function.
+
+The Laplace algorithm works following these steps:
+
+1. **DQN Training**: train the Q-network using the DQN.
+2. **Storing Q-network weights**: when the episode rewards plateuas start collecting the weights of the Q-network at every new mini-batch update.
+3. **Computing Gaussian**: when the Q-network weights have been collected K times (which is the the size of the low-rank covariance) compute the covariance matrix approximation as a diagonal part + an off-diagonal part: $\Sigma = \tfrac{1}{2} \Sigma_\text{diag} \tfrac{1}{2} \Sigma_\text{off-diag}$. $\Sigma_\text{diag}$ is a diagonal matrix having the variances of the weights along the diagonal; $Sigma_\text{of-diag} = \tfrac{1}{K - 1} D D^T, where D is a matrix having as columns the snapshots of the Q-network weights previously collected from which the average of them has been subtracted.
+4. **Sampling new models**:
 
 
 
