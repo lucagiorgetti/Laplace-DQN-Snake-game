@@ -71,5 +71,7 @@ The Laplace algorithm works following these steps:
 4. **Sampling new models**: Sampling models from the Gaussian distribution and use the ones with higher episode reward than the current Q-network to collect experience and add it to the buffer.
 5. **Continue DQN**: go on with the DQN using the enriched buffer.
 
+The idea behind it is that, ideally, after the DQN training is over, the Q-network has reached a local minimum and collecting experience of models sampled outside that minimum can perturb the Q-network out. Indeed, from the Gaussian approximation there is a not null probability to sample models outside that minimum as illustrated with the following figure:
 
+![idea][images/idea.png]
 
