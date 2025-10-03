@@ -74,7 +74,7 @@ The Laplace algorithm works following these steps:
 The idea behind it is that, ideally, after the DQN training is over, the Q-network has reached a local minimum and collecting experience of models sampled outside that minimum can perturb the Q-network out. Indeed, from the Gaussian approximation there is a not null probability to sample models outside that minimum as illustrated with the following figure:
 
 <p align="center">
-  <img src="images/idea.png" alt="idea" width="70%">
+  <img src="images/idea.png" alt="idea" width="50%">
 </p>
 
 
