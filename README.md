@@ -77,4 +77,7 @@ The idea behind it is that, ideally, after the DQN training is over, the Q-netwo
   <img src="images/idea.png" alt="idea" width="50%">
 </p>
 
+I set the K parameter studying the empirical spectral distribution of the covariance matrix  
 
+%However, applying the Laplace extended algorithm does not improve the average episode reward with respect to the standard DQN. 
+%Plotting the 
