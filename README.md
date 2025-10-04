@@ -74,10 +74,23 @@ The Laplace algorithm works following these steps:
 The idea behind it is that, ideally, after the DQN training is over, the Q-network has reached a local minimum and collecting experience of models sampled outside that minimum can perturb the Q-network out. Indeed, from the Gaussian approximation there is a not null probability to sample models outside that minimum as illustrated with the following figure:
 
 <p align="center">
-  <img src="images/idea.png" alt="idea" width="50%">
+  <img src="images/idea.png" alt="idea" width="60%">
 </p>
 
-I set the K parameter studying the empirical spectral distribution of the covariance matrix  
+The K parameter (dimensionality of the low-rank approximation), has been set studying the empirical spectral distribution (ESD) of a larger $\Gamma_\text{off-diag}$, obtained taking many snapshots of the Q-network weights. The histogram of the ESD is the following:
 
-%However, applying the Laplace extended algorithm does not improve the average episode reward with respect to the standard DQN. 
-%Plotting the 
+<p align="center">
+  <img src="images/correlation_histo.png" alt="idea" width="100%">
+</p>
+
+It scales like a power-law, therefore just taking K = 58, over 99 per cent of the variance of the bigger matrix is captured.
+
+However, running the Laplace extended algorithm does not improve the average episode reward with respect to the standard DQN. 
+One of the main reasons is, I believe, that the Q-network actually was not stuck in a minimum of the loss, but it was evolving between different models having the same performance. In fact, the loss never really reached a plateau and the $D$ matrix is evolving along its singular direction:
+
+<p align="center">
+  <img src="images/loss_very_long_double_training3.png" width="45%" />
+  <img src="images/trajectory_series.png" width="45%" />
+</p>
+
+ Thus, there were not the sufficient conditions to apply the Laplace Approximation the Q-network. It remains to be explored if, after a longer DQN, in which the loss really flattens, this method can be effective to perturb the system out of the minimum. 
