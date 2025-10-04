@@ -108,15 +108,16 @@ It scales like a power-law, therefore just taking K = 58, over 99 per cent of th
 However, running the Laplace extended algorithm does not improve the average episode reward with respect to the standard DQN. 
 One of the main reasons is, I believe, that the Q-network was actually not stuck in a minimum of the loss, but it was evolving between different models having the same performance. In fact, the loss never really reached a plateau and the $D$ matrix was changing along its first singular direction:
 
-<figure style="text-align: center;">
+<p align="center">
   <img src="images/loss_very_long_double_training3.png" width="45%" />
   <img src="images/trajectory_series.png" width="45%" />
-  <figcaption>
-    On the left, DQN Loss function: even if it is mostly flat and zero, 
-    the peaks show that RMSProp is still optimizing the model; 
-    On the right, Projection of <i>D</i> along its two first singular directions: 
-    while the second one seems to be periodic, the first one is not.
-  </figcaption>
-</figure>
+</p>
+
+<p align="center"><em>
+On the left, DQN Loss function: even if it is mostly flat and zero,  
+the peaks show that RMSProp is still optimizing the model;  
+On the right, Projection of D along its two first singular directions:  
+while the second one seems to be periodic, the first one is not.
+</em></p>
 
  Thus, there was not the sufficient condition to apply the Laplace Approximation to the Q-network. It remains to be explored if, after a longer DQN, in which the loss really flattens, this method can be effective to perturb the system out of the minimum. 
