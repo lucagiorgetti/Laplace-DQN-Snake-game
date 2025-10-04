@@ -29,7 +29,9 @@ $\epsilon$-greedy exploration strategy. In particular, a sampling-based approach
 A vanilla DQN, with a single frame as state of the Q-nework leads to poor results (9 eaten apples). The following gif shows the best game after 100 000 mini-batches of training:
 
 ![Vanilla DQN, best game](trainer_gifs/very_long_training1.gif)
-*Best game achieved with vanilla-DQN (score = 9).*
+<p align="center"><em>
+   Best game achieved with vanilla-DQN (score = 9).
+</em></p>
 
 
 ## Improvements Applied to DQN for SnakeGame
@@ -52,7 +54,9 @@ A vanilla DQN, with a single frame as state of the Q-nework leads to poor result
 After these improvements the snake reaches a score of 33. The best game played is the following:
 
 ![Improved DQN, best game](trainer_gifs/very_long_double_training3.gif)
-*Best game achieved after improvements (score = 33).*
+<p align="center"><em>
+Best game achieved after improvements (score = 33).
+</em></p>
 
 (See also this [DragonWarrior15](https://github.com/DragonWarrior15/snake-rl) from which I took inspiration).
 The following table shows a list of the hyperparameters:
